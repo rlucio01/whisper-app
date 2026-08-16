@@ -168,6 +168,11 @@ kbd {
   gap: 1rem;
 }
 
+.app-header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .icon-btn {
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -502,6 +507,92 @@ select.text-input option {
   color: rgba(255, 255, 255, 0.6);
   font-size: 0.9rem;
   line-height: 1.5;
+}
+
+/* ---------- Tela de Histórico ---------- */
+
+.history-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 1rem 1.25rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.history-stat-label {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.history-stat-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+.history-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.history-day-label {
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.history-entry {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.history-entry-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-entry-time {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.history-entry-text {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.history-entry-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.history-entry-actions .icon-btn {
+  width: 30px;
+  height: 30px;
+  font-size: 0.95rem;
 }
 
 @media (prefers-color-scheme: light) {

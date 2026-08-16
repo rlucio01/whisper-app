@@ -13,6 +13,7 @@ mod active_app;
 mod audio;
 mod commands;
 mod config;
+mod history;
 mod hotkey;
 mod insert;
 mod llm;
@@ -101,6 +102,10 @@ pub fn run() {
             commands::delete_whisper_model,
             commands::is_autostart_enabled,
             commands::set_autostart,
+            commands::get_history,
+            commands::delete_history_entry,
+            commands::clear_history,
+            commands::repaste_text,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o app Tauri");

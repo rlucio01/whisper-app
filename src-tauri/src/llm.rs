@@ -123,6 +123,10 @@ fn llm_thread_loop<R: Runtime>(
             None
         };
 
+        // Clona antes do if/else abaixo — `raw_text` é movido pro branch de
+        // passthrough, então sem isso ficaria inacessível depois pro histórico.
+        let raw_text_for_history = raw_text.clone();
+
         // Determina o texto final: LLM formatado, ou passthrough se sem chave.
         let final_text = if cfg.active_api_key().trim().is_empty() {
             raw_text
@@ -176,6 +180,12 @@ fn llm_thread_loop<R: Runtime>(
 
         // Sempre emite o texto pronto — a UI mostra antes da colagem.
         let _ = app.emit("format-complete", final_text.clone());
+
+        // Salva no histórico (se não for vazio — evita poluir com toques
+        // acidentais de hotkey que não capturaram fala nenhuma).
+        if !final_text.trim().is_empty() {
+            crate::history::append(&app, &raw_text_for_history, &final_text);
+        }
 
         // Cola no app ativo. Falha aqui não bloqueia — o usuário ainda vê o
         // texto na UI e pode copiar manualmente se precisar.

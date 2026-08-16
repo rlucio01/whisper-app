@@ -10,7 +10,9 @@ use tauri::{AppHandle, Runtime, State};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::config::{self, AppConfig, SharedConfig, WhisperModel};
+use crate::history::{self, HistoryEntry};
 use crate::hotkey;
+use crate::insert;
 use crate::models::{self, ModelStatus};
 
 /// Retorna o config atual (do state em memória, não relê do disco).
@@ -133,4 +135,30 @@ pub fn open_config_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     // gerenciador de arquivos padrão do SO.
     tauri_plugin_opener::open_path(parent, None::<&str>).map_err(|e| format!("{:#}", e))?;
     Ok(())
+}
+
+/// Lista o histórico de ditados, mais recente primeiro.
+#[tauri::command]
+pub fn get_history<R: Runtime>(app: AppHandle<R>) -> Result<Vec<HistoryEntry>, String> {
+    history::list(&app).map_err(|e| format!("{:#}", e))
+}
+
+/// Apaga uma entrada específica do histórico pelo ID.
+#[tauri::command]
+pub fn delete_history_entry<R: Runtime>(app: AppHandle<R>, id: i64) -> Result<(), String> {
+    history::delete(&app, id).map_err(|e| format!("{:#}", e))
+}
+
+/// Apaga todo o histórico de ditados.
+#[tauri::command]
+pub fn clear_history<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    history::clear(&app).map_err(|e| format!("{:#}", e))
+}
+
+/// Recola um texto do histórico no app ativo (mesma mecânica de colagem do
+/// pipeline normal — clipboard + Ctrl/Cmd+V). Usado pelo botão "colar de
+/// novo" em cada entrada do histórico.
+#[tauri::command]
+pub fn repaste_text(text: String) -> Result<(), String> {
+    insert::paste_text(&text).map_err(|e| format!("{:#}", e))
 }

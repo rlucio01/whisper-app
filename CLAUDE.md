@@ -13,6 +13,7 @@ Rust (src-tauri/src/)         — lógica de sistema:
   ├── audio                    captura via cpal → WAV em memória (thread própria)
   ├── commands                 comandos Tauri chamáveis do frontend
   ├── config                   settings persistentes em JSON
+  ├── history                  histórico de ditados (JSON Lines em disco)
   ├── hotkey                   atalho global configurável
   ├── insert                   clipboard + Ctrl+V via enigo + arboard
   ├── llm                      OpenAI/Anthropic/OpenRouter/Groq/Gemini/xAI para reformatar + traduzir
@@ -154,11 +155,39 @@ Frontend escuta:
 
 ## Estado atual
 
-MVP + V2 fechados (Windows). Próximos passos possíveis:
+MVP + V2 fechados (Windows). Multi-provider LLM (OpenAI/Anthropic/
+OpenRouter/Groq/Gemini/xAI) + transcrição cloud via Groq + feedback sonoro
++ autostart fechados também. Próximos passos possíveis:
 - Portar `active_app` pra macOS/Linux.
 - Streaming da resposta do LLM (colar por partes) — reduziria latência
   percebida em cloud.
 - Whisper.cpp com GPU (CUDA/DirectML) — build ficaria mais complexo.
+
+**Histórico de ditados** — implementado. Cada transcrição finalizada (com
+texto não-vazio) é gravada em `history.jsonl` no `app_data_dir` — ver
+`history.rs`. Comandos: `get_history`, `delete_history_entry`,
+`clear_history`, `repaste_text`. UI em `History.tsx`, acessível pelo ícone
+🕓 no cabeçalho principal — busca, contagem de palavras total, agrupamento
+por dia, copiar/colar de novo/apagar por entrada. Sem limite de retenção
+por ora (ver item de retenção abaixo).
+
+Roadmap levantado a partir de telas de um concorrente (Amical), avaliado
+em 2026-08-16:
+- Retenção/limite de histórico (ex: "nunca apagar" vs "apagar após N dias")
+  — hoje cresce sem limite; aceitável pra uso pessoal mas pode virar setting
+  em Avançado se incomodar.
+- **Modo hands-free** — atalho separado do push-to-talk atual que liga/
+  desliga a gravação com toques em vez de segurar.
+- **Colar última transcrição** — atalho pra recolar sem regravar, guardando
+  o último texto formatado em state.
+- **Seleção de microfone** — hoje usa o device default do SO; escolher
+  explicitamente é barato via `cpal::host.input_devices()`.
+- Mute do áudio do sistema durante a gravação (evita capturar vídeo/música
+  tocando no fundo) — menor prioridade.
+- Widget sempre visível (não só durante o pipeline) — menor prioridade.
+- Descartado por ora: telemetria, update channel, machine ID (infra de
+  produto SaaS, não cabe num app pessoal), "self correction" via IA
+  (complexo, YAGNI), multi-idioma de UI (app é uso pessoal em PT-BR).
 
 Ver memory files em `C:\Users\rafae\.claude\projects\C--DADOS-WEBAPPS-whisper-app\memory\`
 para preferências e histórico específicos do usuário.

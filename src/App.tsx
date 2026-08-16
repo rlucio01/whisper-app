@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Settings from "./Settings";
+import History from "./History";
 import { playBeep, type SoundKind } from "./sound";
 import "./App.css";
 
@@ -13,7 +14,7 @@ type Status =
   | "complete"
   | "error";
 
-type View = "main" | "settings";
+type View = "main" | "settings" | "history";
 
 function App() {
   const [view, setView] = useState<View>("main");
@@ -108,6 +109,14 @@ function App() {
     );
   }
 
+  if (view === "history") {
+    return (
+      <main className="container">
+        <History onBack={() => setView("main")} />
+      </main>
+    );
+  }
+
   return (
     <main className="container">
       <header className="app-header">
@@ -115,14 +124,24 @@ function App() {
           <h1>Whisper App</h1>
           <p className="tagline">Ditado por voz com IA</p>
         </div>
-        <button
-          className="icon-btn"
-          onClick={() => setView("settings")}
-          title="Configurações"
-          aria-label="Configurações"
-        >
-          ⚙
-        </button>
+        <div className="app-header-actions">
+          <button
+            className="icon-btn"
+            onClick={() => setView("history")}
+            title="Histórico"
+            aria-label="Histórico"
+          >
+            🕓
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => setView("settings")}
+            title="Configurações"
+            aria-label="Configurações"
+          >
+            ⚙
+          </button>
+        </div>
       </header>
 
       <section className={`status status-${status}`}>
