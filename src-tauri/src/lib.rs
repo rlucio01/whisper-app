@@ -63,6 +63,12 @@ pub fn run() {
                 Arc::new(Mutex::new(None));
             app.manage(shared_active_app);
 
+            // Flag compartilhado entre push-to-talk e hands-free — ver
+            // comentário no topo de hotkey.rs sobre por que é unificado.
+            let shared_recording_active: hotkey::SharedRecordingActive =
+                Arc::new(Mutex::new(false));
+            app.manage(shared_recording_active);
+
             // Sobe as threads de background e guarda os handles como state.
             // Ordem importa (dependência entre serviços):
             //   1. LlmService     (final da cadeia)

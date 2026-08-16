@@ -194,6 +194,13 @@ pub struct AppConfig {
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
 
+    /// Combinação de atalho pro modo hands-free: toque uma vez pra começar
+    /// a gravar, toque de novo pra parar (não precisa segurar). Mesmo
+    /// formato de accelerator do campo `hotkey`. Vazio = desativado — só
+    /// push-to-talk fica ativo.
+    #[serde(default)]
+    pub hands_free_hotkey: String,
+
     /// Onde transcrever: local (whisper.cpp) ou nuvem (OpenAI API).
     #[serde(default)]
     pub transcription_provider: TranscriptionProvider,
@@ -272,6 +279,7 @@ impl Default for AppConfig {
             translate: TranslateConfig::default(),
             visual_indicator: VisualIndicator::default(),
             hotkey: default_hotkey(),
+            hands_free_hotkey: String::new(),
             transcription_provider: TranscriptionProvider::default(),
             whisper_model: WhisperModel::default(),
             adapt_prompt_to_active_app: true,

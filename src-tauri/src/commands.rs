@@ -29,27 +29,29 @@ pub fn get_config(state: State<'_, SharedConfig>) -> Result<AppConfig, String> {
 /// Salva um novo config: persiste no disco E atualiza o state em memória.
 /// A mudança pega imediatamente — a próxima chamada de LLM já usa o novo.
 ///
-/// Se o `hotkey` mudou, também re-registra o atalho global. Se a combinação
-/// for inválida, retornamos erro ANTES de salvar/re-registrar — o atalho
-/// anterior continua ativo e nada é persistido.
+/// Se algum dos dois atalhos (push-to-talk ou hands-free) mudou, também
+/// re-registra os atalhos globais. Se alguma combinação for inválida,
+/// retornamos erro ANTES de salvar/re-registrar — os atalhos anteriores
+/// continuam ativos e nada é persistido.
 #[tauri::command]
 pub fn save_config<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, SharedConfig>,
     new_config: AppConfig,
 ) -> Result<(), String> {
-    // Descobre se o hotkey mudou (só re-registra se necessário — evita blip
-    // no atalho ativo quando o usuário só mexeu em outros campos).
-    let hotkey_changed = {
+    // Descobre se algum atalho mudou (só re-registra se necessário — evita
+    // blip nos atalhos ativos quando o usuário só mexeu em outros campos).
+    let hotkeys_changed = {
         let guard = state
             .lock()
             .map_err(|_| "config mutex envenenado".to_string())?;
         guard.hotkey.trim() != new_config.hotkey.trim()
+            || guard.hands_free_hotkey.trim() != new_config.hands_free_hotkey.trim()
     };
 
-    if hotkey_changed {
-        // Valida + re-registra. Se falhar, retorna e nada mais é feito.
-        hotkey::replace(&app, &new_config.hotkey)?;
+    if hotkeys_changed {
+        // Valida + re-registra os dois. Se falhar, retorna e nada mais é feito.
+        hotkey::sync(&app, &new_config)?;
     }
 
     // Primeiro salva no disco. Se falhar, não atualizamos o state em memória —

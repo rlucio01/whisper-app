@@ -67,8 +67,14 @@ Fluxo do usuário:
   vira input de texto livre.
 - `translate: { enabled, target_language }` — tradução automática.
 - `visual_indicator: none|floating|tray|both` — indicador visual.
-- `hotkey: String` — atalho no formato accelerator (`"F9"`, `"Ctrl+Shift+K"`,
-  `"Alt+Space"`, etc.). Trocar em runtime via `hotkey::replace`.
+- `hotkey: String` — atalho push-to-talk (segura grava, solta para), formato
+  accelerator (`"F9"`, `"Ctrl+Shift+K"`, `"Alt+Space"`, etc.).
+- `hands_free_hotkey: String` — atalho opcional pro modo hands-free (toca
+  uma vez pra começar, toca de novo pra parar). Vazio = desativado. Os dois
+  compartilham um único flag de "gravação em curso" (`hotkey::SharedRecordingActive`)
+  — soltar o push-to-talk sempre encerra a gravação, mesmo se ela tiver
+  começado via hands-free. Trocar qualquer um dos dois em runtime via
+  `hotkey::sync` (chamado por `save_config` quando algum dos campos muda).
 - `transcription_provider: local|openai_cloud|groq_cloud` — onde
   transcrever. `openai_cloud` e `groq_cloud` compartilham a mesma função
   (`transcribe_cloud` em `transcription.rs`, formato multipart idêntico) —
@@ -163,6 +169,9 @@ OpenRouter/Groq/Gemini/xAI) + transcrição cloud via Groq + feedback sonoro
   percebida em cloud.
 - Whisper.cpp com GPU (CUDA/DirectML) — build ficaria mais complexo.
 
+**Modo hands-free** — implementado (`hands_free_hotkey` no config, opcional).
+Ver `hotkey.rs`.
+
 **Histórico de ditados** — implementado. Cada transcrição finalizada (com
 texto não-vazio) é gravada em `history.jsonl` no `app_data_dir` — ver
 `history.rs`. Comandos: `get_history`, `delete_history_entry`,
@@ -176,10 +185,9 @@ em 2026-08-16:
 - Retenção/limite de histórico (ex: "nunca apagar" vs "apagar após N dias")
   — hoje cresce sem limite; aceitável pra uso pessoal mas pode virar setting
   em Avançado se incomodar.
-- **Modo hands-free** — atalho separado do push-to-talk atual que liga/
-  desliga a gravação com toques em vez de segurar.
-- **Colar última transcrição** — atalho pra recolar sem regravar, guardando
-  o último texto formatado em state.
+- **Colar última transcrição** — atalho pra recolar sem regravar. O comando
+  `repaste_text` (adicionado pro histórico) já faz a colagem; falta só um
+  atalho global dedicado que chame ele com o último texto formatado.
 - **Seleção de microfone** — hoje usa o device default do SO; escolher
   explicitamente é barato via `cpal::host.input_devices()`.
 - Mute do áudio do sistema durante a gravação (evita capturar vídeo/música

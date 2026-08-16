@@ -30,6 +30,7 @@ interface AppConfig {
   };
   visual_indicator: VisualIndicator;
   hotkey: string;
+  hands_free_hotkey: string;
   transcription_provider: TranscriptionProvider;
   whisper_model: WhisperModelSlug;
   adapt_prompt_to_active_app: boolean;
@@ -500,6 +501,21 @@ export default function Settings({ onBack }: SettingsProps) {
       </section>
 
       <section className="field">
+        <label className="field-label">Atalho hands-free (opcional)</label>
+        <HotkeyCapture
+          value={config.hands_free_hotkey}
+          onChange={(hk) => setConfig({ ...config, hands_free_hotkey: hk })}
+          placeholder="Desativado"
+          onClear={() => setConfig({ ...config, hands_free_hotkey: "" })}
+        />
+        <p className="field-hint">
+          Toque uma vez pra começar a gravar, toque de novo pra parar — sem
+          precisar segurar. Útil pra ditados longos. Precisa ser diferente do
+          atalho push-to-talk acima. Deixe desativado se não for usar.
+        </p>
+      </section>
+
+      <section className="field">
         <label className="field-label" htmlFor="visual">
           Indicador visual durante a gravação
         </label>
@@ -763,6 +779,10 @@ function formatProgress(p: DownloadProgress): string {
 interface HotkeyCaptureProps {
   value: string;
   onChange: (hotkey: string) => void;
+  /** Texto mostrado quando `value` está vazio (ex: "Desativado"). */
+  placeholder?: string;
+  /** Se fornecido, mostra um botão "Desativar" quando há um valor definido. */
+  onClear?: () => void;
 }
 
 /**
@@ -773,7 +793,7 @@ interface HotkeyCaptureProps {
  * `Alt+Space`, `F9`. Só finaliza quando o usuário aperta uma tecla
  * não-modificadora (aí temos algo válido para registrar).
  */
-function HotkeyCapture({ value, onChange }: HotkeyCaptureProps) {
+function HotkeyCapture({ value, onChange, placeholder, onClear }: HotkeyCaptureProps) {
   const [capturing, setCapturing] = useState(false);
   // Ref para o handler ficar estável entre renders — o addEventListener/remove
   // precisa da mesma referência.
@@ -829,7 +849,11 @@ function HotkeyCapture({ value, onChange }: HotkeyCaptureProps) {
         type="text"
         className="text-input hotkey-display"
         readOnly
-        value={capturing ? "Pressione a combinação… (Esc cancela)" : value}
+        value={
+          capturing
+            ? "Pressione a combinação… (Esc cancela)"
+            : value || placeholder || ""
+        }
       />
       <button
         type="button"
@@ -838,6 +862,11 @@ function HotkeyCapture({ value, onChange }: HotkeyCaptureProps) {
       >
         {capturing ? "Cancelar" : "Alterar"}
       </button>
+      {onClear && value && !capturing && (
+        <button type="button" className="btn-secondary" onClick={onClear}>
+          Desativar
+        </button>
+      )}
     </div>
   );
 }
