@@ -1,17 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { playBeep } from "./sound";
 
 // Tipo espelhando `AppConfig` no Rust (config.rs).
-type Provider = "openai" | "anthropic";
+type Provider =
+  | "openai"
+  | "anthropic"
+  | "openrouter"
+  | "groq"
+  | "gemini"
+  | "xai";
 type VisualIndicator = "none" | "floating" | "tray" | "both";
-type TranscriptionProvider = "local" | "openai_cloud";
+type TranscriptionProvider = "local" | "openai_cloud" | "groq_cloud";
 type WhisperModelSlug = "tiny" | "base" | "small" | "medium" | "large_turbo";
 
 interface AppConfig {
   provider: Provider;
   openai_api_key: string;
   anthropic_api_key: string;
+  openrouter_api_key: string;
+  groq_api_key: string;
+  gemini_api_key: string;
+  xai_api_key: string;
   llm_model: string;
   translate: {
     enabled: boolean;
@@ -22,6 +33,7 @@ interface AppConfig {
   transcription_provider: TranscriptionProvider;
   whisper_model: WhisperModelSlug;
   adapt_prompt_to_active_app: boolean;
+  sound_feedback: boolean;
 }
 
 interface ModelStatus {
@@ -32,10 +44,103 @@ interface ModelStatus {
   bytes_on_disk: number;
 }
 
-const DEFAULT_MODELS: Record<Provider, string> = {
-  openai: "gpt-4o-mini",
-  anthropic: "claude-haiku-4-5-20251001",
+const PROVIDER_LABELS: Record<Provider, string> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  openrouter: "OpenRouter",
+  groq: "Groq",
+  gemini: "Google Gemini",
+  xai: "xAI (Grok)",
 };
+
+const API_KEY_PLACEHOLDER: Record<Provider, string> = {
+  openai: "sk-... ou sk-proj-...",
+  anthropic: "sk-ant-...",
+  openrouter: "sk-or-v1-...",
+  groq: "gsk_...",
+  gemini: "AIza...",
+  xai: "xai-...",
+};
+
+const API_KEY_HELP_URL: Record<Provider, string> = {
+  openai: "https://platform.openai.com/api-keys",
+  anthropic: "https://console.anthropic.com/settings/keys",
+  openrouter: "https://openrouter.ai/keys",
+  groq: "https://console.groq.com/keys",
+  gemini: "https://aistudio.google.com/apikey",
+  xai: "https://console.x.ai",
+};
+
+/** Modelos "recomendados" que aparecem no dropdown por provider. O primeiro
+ *  item de cada lista deve ser o mesmo default do Rust (config.rs) — assim
+ *  o dropdown reflete o que o backend usa quando `llm_model` está vazio.
+ *  Novos modelos sempre podem ser digitados via opção "personalizado". */
+const CURATED_MODELS: Record<Provider, string[]> = {
+  openai: ["gpt-4o-mini", "gpt-4o", "gpt-5-mini", "gpt-5"],
+  anthropic: [
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-6",
+    "claude-opus-4-7",
+  ],
+  openrouter: [
+    "openai/gpt-4o-mini",
+    "anthropic/claude-haiku-4.5",
+    "deepseek/deepseek-chat-v3.1",
+    "google/gemini-2.0-flash-001",
+    "meta-llama/llama-3.3-70b-instruct",
+  ],
+  groq: [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
+  ],
+  gemini: [
+    "gemini-2.0-flash",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash-lite",
+  ],
+  xai: ["grok-3-mini", "grok-3", "grok-4-latest"],
+};
+
+const DEFAULT_MODEL_OF = (p: Provider) => CURATED_MODELS[p][0];
+
+/** Lê a chave do provider ativo (helper pra evitar `config[activeKey]` que o
+ *  TS não estreita bem quando o objeto tem campos não-string). */
+function getApiKey(cfg: AppConfig, provider: Provider): string {
+  switch (provider) {
+    case "openai":
+      return cfg.openai_api_key;
+    case "anthropic":
+      return cfg.anthropic_api_key;
+    case "openrouter":
+      return cfg.openrouter_api_key;
+    case "groq":
+      return cfg.groq_api_key;
+    case "gemini":
+      return cfg.gemini_api_key;
+    case "xai":
+      return cfg.xai_api_key;
+  }
+}
+
+function setApiKey(cfg: AppConfig, provider: Provider, value: string): AppConfig {
+  switch (provider) {
+    case "openai":
+      return { ...cfg, openai_api_key: value };
+    case "anthropic":
+      return { ...cfg, anthropic_api_key: value };
+    case "openrouter":
+      return { ...cfg, openrouter_api_key: value };
+    case "groq":
+      return { ...cfg, groq_api_key: value };
+    case "gemini":
+      return { ...cfg, gemini_api_key: value };
+    case "xai":
+      return { ...cfg, xai_api_key: value };
+  }
+}
 
 interface SettingsProps {
   onBack: () => void;
@@ -75,8 +180,12 @@ export default function Settings({ onBack }: SettingsProps) {
     );
   }
 
-  const activeKey =
-    config.provider === "openai" ? "openai_api_key" : "anthropic_api_key";
+  const providerLabel = PROVIDER_LABELS[config.provider];
+  const curated = CURATED_MODELS[config.provider];
+  // O modelo é "custom" quando o usuário digitou algo que não bate com nenhum
+  // preset e não é vazio. Vazio = usar o default do provider.
+  const isCustomModel =
+    config.llm_model.trim() !== "" && !curated.includes(config.llm_model);
 
   async function save() {
     if (!config) return;
@@ -102,64 +211,92 @@ export default function Settings({ onBack }: SettingsProps) {
       </header>
 
       <section className="field">
-        <label className="field-label">Provedor de LLM</label>
-        <div className="toggle-group">
-          <button
-            className={`toggle-btn ${config.provider === "openai" ? "active" : ""}`}
-            onClick={() => setConfig({ ...config, provider: "openai" })}
-          >
-            OpenAI
-          </button>
-          <button
-            className={`toggle-btn ${config.provider === "anthropic" ? "active" : ""}`}
-            onClick={() => setConfig({ ...config, provider: "anthropic" })}
-          >
-            Anthropic
-          </button>
-        </div>
+        <label className="field-label" htmlFor="provider">
+          Provedor de LLM
+        </label>
+        <select
+          id="provider"
+          className="text-input"
+          value={config.provider}
+          onChange={(e) => {
+            const newProvider = e.target.value as Provider;
+            // Ao trocar de provider, o modelo salvo raramente faz sentido no
+            // novo — limpamos pra cair no default do provider escolhido.
+            setConfig({ ...config, provider: newProvider, llm_model: "" });
+          }}
+        >
+          {(Object.keys(PROVIDER_LABELS) as Provider[]).map((p) => (
+            <option key={p} value={p}>
+              {PROVIDER_LABELS[p]}
+            </option>
+          ))}
+        </select>
       </section>
 
       <section className="field">
         <label className="field-label" htmlFor="apikey">
-          Chave da API ({config.provider})
+          Chave da API ({providerLabel})
         </label>
         <input
           id="apikey"
           type="password"
           className="text-input"
-          placeholder={
-            config.provider === "openai"
-              ? "sk-... ou sk-proj-..."
-              : "sk-ant-..."
-          }
-          value={config[activeKey]}
-          onChange={(e) =>
-            setConfig({ ...config, [activeKey]: e.target.value })
-          }
+          placeholder={API_KEY_PLACEHOLDER[config.provider]}
+          value={getApiKey(config, config.provider)}
+          onChange={(e) => setConfig(setApiKey(config, config.provider, e.target.value))}
         />
         <p className="field-hint">
           Deixe em branco para desativar (o app mostra só a transcrição bruta,
-          sem formatação).
+          sem formatação). Pegue sua chave em{" "}
+          <a
+            href={API_KEY_HELP_URL[config.provider]}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {API_KEY_HELP_URL[config.provider]}
+          </a>
+          .
         </p>
       </section>
 
       <section className="field">
         <label className="field-label" htmlFor="model">
-          Modelo (opcional)
+          Modelo
         </label>
-        <input
+        <select
           id="model"
-          type="text"
           className="text-input"
-          placeholder={DEFAULT_MODELS[config.provider]}
-          value={config.llm_model}
-          onChange={(e) =>
-            setConfig({ ...config, llm_model: e.target.value })
-          }
-        />
-        <p className="field-hint">
-          Vazio = default ({DEFAULT_MODELS[config.provider]}).
-        </p>
+          value={isCustomModel ? "__custom" : config.llm_model}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "__custom") {
+              // Ao mudar pra custom, semeia com o default do provider pra o
+              // usuário ter algo de onde partir a edição.
+              setConfig({ ...config, llm_model: DEFAULT_MODEL_OF(config.provider) });
+            } else {
+              // "" = usar default do backend; qualquer curated fica literal.
+              setConfig({ ...config, llm_model: v });
+            }
+          }}
+        >
+          <option value="">Padrão ({DEFAULT_MODEL_OF(config.provider)})</option>
+          {curated.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+          <option value="__custom">Personalizado…</option>
+        </select>
+        {isCustomModel && (
+          <input
+            type="text"
+            className="text-input"
+            style={{ marginTop: "0.5rem" }}
+            placeholder={DEFAULT_MODEL_OF(config.provider)}
+            value={config.llm_model}
+            onChange={(e) => setConfig({ ...config, llm_model: e.target.value })}
+          />
+        )}
       </section>
 
       <section className="field">
@@ -184,18 +321,72 @@ export default function Settings({ onBack }: SettingsProps) {
           >
             OpenAI (cloud)
           </button>
+          <button
+            className={`toggle-btn ${config.transcription_provider === "groq_cloud" ? "active" : ""}`}
+            onClick={() =>
+              setConfig({
+                ...config,
+                transcription_provider: "groq_cloud",
+              })
+            }
+          >
+            Groq (cloud)
+          </button>
         </div>
-        {config.transcription_provider === "local" ? (
+        {config.transcription_provider === "local" && (
           <ModelPicker
             selected={config.whisper_model}
             onSelect={(slug) => setConfig({ ...config, whisper_model: slug })}
           />
-        ) : (
-          <p className="field-hint">
-            O áudio é enviado para a API da OpenAI (modelo <code>whisper-1</code>
-            ). Usa a chave configurada acima. Nada fica no seu disco, mas
-            precisa de internet.
-          </p>
+        )}
+        {config.transcription_provider === "openai_cloud" && (
+          <>
+            <input
+              type="password"
+              className="text-input"
+              placeholder="sk-... ou sk-proj-..."
+              value={config.openai_api_key}
+              onChange={(e) =>
+                setConfig({ ...config, openai_api_key: e.target.value })
+              }
+              style={{ marginTop: "0.5rem" }}
+            />
+            <p className="field-hint">
+              O áudio é enviado para a API da OpenAI (modelo{" "}
+              <code>whisper-1</code>). Essa chave é a mesma usada se você
+              escolher "OpenAI" como provedor de LLM acima. Nada fica no seu
+              disco, mas precisa de internet.
+            </p>
+          </>
+        )}
+        {config.transcription_provider === "groq_cloud" && (
+          <>
+            <input
+              type="password"
+              className="text-input"
+              placeholder="gsk_..."
+              value={config.groq_api_key}
+              onChange={(e) =>
+                setConfig({ ...config, groq_api_key: e.target.value })
+              }
+              style={{ marginTop: "0.5rem" }}
+            />
+            <p className="field-hint">
+              O áudio é enviado para a API do Groq (modelo{" "}
+              <code>whisper-large-v3-turbo</code>), que roda em hardware
+              dedicado (LPU) e costuma ser bem mais rápido que a OpenAI pra
+              ditados curtos. Essa chave é a mesma usada se você escolher
+              "Groq" como provedor de LLM acima. Pegue a sua em{" "}
+              <a
+                href="https://console.groq.com/keys"
+                target="_blank"
+                rel="noreferrer"
+              >
+                console.groq.com/keys
+              </a>
+              .
+            </p>
+          </>
         )}
       </section>
 
@@ -218,6 +409,36 @@ export default function Settings({ onBack }: SettingsProps) {
           colar (Slack, Outlook, VS Code, etc.) e passa isso como contexto pro
           LLM — o tom da reformatação fica mais adequado. Nenhum dado do app é
           enviado pra fora além do nome do executável e do título da janela.
+        </p>
+      </section>
+
+      <section className="field">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={config.sound_feedback}
+            onChange={(e) =>
+              setConfig({
+                ...config,
+                sound_feedback: e.target.checked,
+              })
+            }
+          />
+          <span>Beep sonoro ao começar e terminar</span>
+        </label>
+        <p className="field-hint">
+          Toca um bipe curto ao iniciar a gravação e outro quando o texto
+          termina de ser colado — feedback útil quando o app está no tray.
+          <button
+            type="button"
+            className="btn-link"
+            onClick={() => {
+              playBeep("start");
+              setTimeout(() => playBeep("end"), 400);
+            }}
+          >
+            testar sons
+          </button>
         </p>
       </section>
 

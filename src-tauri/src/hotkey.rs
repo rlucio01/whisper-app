@@ -22,6 +22,7 @@ use tauri_plugin_global_shortcut::{
 use crate::active_app::{self, SharedActiveApp};
 use crate::audio::AudioService;
 use crate::config::SharedConfig;
+use crate::sound;
 use crate::visual;
 
 /// String usada quando o config não tem nada configurado.
@@ -127,6 +128,7 @@ fn handler<R: Runtime>(
 
                 let _ = app.emit("hotkey-pressed", ());
                 visual::set(app, visual::State::Recording);
+                sound::play(app, sound::Kind::Start);
                 service.start();
             }
             ShortcutState::Released => {

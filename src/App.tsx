@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Settings from "./Settings";
+import { playBeep, type SoundKind } from "./sound";
 import "./App.css";
 
 type Status =
@@ -72,6 +73,14 @@ function App() {
       listen<string>("format-error", (e) => {
         setStatus("error");
         setErrorMsg(e.payload);
+      })
+    );
+
+    // Feedback sonoro — o Rust só emite se `sound_feedback` estiver ligado
+    // no config, então aqui basta tocar quando o evento chega.
+    track(
+      listen<SoundKind>("play-sound", (e) => {
+        playBeep(e.payload);
       })
     );
 

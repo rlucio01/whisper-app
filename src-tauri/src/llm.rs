@@ -1,8 +1,15 @@
 //! Formatação (+ tradução opcional) do texto transcrito via API de LLM.
 //!
-//! Suporta dois providers, escolhidos pelo `provider` do config:
+//! Suporta seis providers, escolhidos pelo `provider` do config:
 //!   - **OpenAI** (`gpt-4o-mini` por padrão) — Chat Completions API
 //!   - **Anthropic** (`claude-haiku-4-5` por padrão) — Messages API
+//!   - **OpenRouter** — gateway com centenas de modelos, API compatível OpenAI
+//!   - **Groq** — inferência ultra-rápida (LPU), API compatível OpenAI
+//!   - **Google Gemini** — API própria `generateContent`
+//!   - **xAI** (Grok) — API compatível OpenAI
+//!
+//! Os quatro OpenAI-compat compartilham `call_openai_compatible()` — mudam
+//! só o endpoint, a chave e alguns headers. Gemini e Anthropic têm as suas.
 //!
 //! ## Comportamento
 //!
@@ -31,11 +38,24 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use crate::active_app::{ActiveApp, AppCategory, SharedActiveApp};
 use crate::config::{AppConfig, LlmProvider, SharedConfig};
 use crate::insert;
+use crate::sound;
 use crate::visual;
 
 const OPENAI_ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
 const ANTHROPIC_ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+const OPENROUTER_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
+const GROQ_ENDPOINT: &str = "https://api.groq.com/openai/v1/chat/completions";
+const XAI_ENDPOINT: &str = "https://api.x.ai/v1/chat/completions";
+/// Gemini usa `{endpoint}/{model}:generateContent?key={api_key}` — não é o
+/// mesmo formato de POST + Bearer dos outros. Ver `call_gemini`.
+const GEMINI_ENDPOINT_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
+
+/// Headers opcionais que o OpenRouter recomenda para aparecer nos rankings
+/// deles e ajudar em atribuição de tráfego. Não são obrigatórios pra API
+/// funcionar, mas custam quase nada.
+const OPENROUTER_APP_URL: &str = "https://github.com/rlucio01/whisper-app";
+const OPENROUTER_APP_TITLE: &str = "Whisper App";
 
 /// Limite de tokens da resposta. Ditado curto raramente passa de algumas
 /// centenas — 2048 dá folga sem correr risco de truncar.
@@ -109,11 +129,39 @@ fn llm_thread_loop<R: Runtime>(
         } else {
             let _ = app.emit("formatting-started", ());
             let result = match cfg.provider {
-                LlmProvider::Openai => {
-                    call_openai(&client, &raw_text, &cfg, active_app.as_ref())
-                }
+                LlmProvider::Openai => call_openai_compatible(
+                    &client,
+                    &raw_text,
+                    &cfg,
+                    active_app.as_ref(),
+                    OpenaiCompatConfig::openai(&cfg.openai_api_key),
+                ),
+                LlmProvider::Openrouter => call_openai_compatible(
+                    &client,
+                    &raw_text,
+                    &cfg,
+                    active_app.as_ref(),
+                    OpenaiCompatConfig::openrouter(&cfg.openrouter_api_key),
+                ),
+                LlmProvider::Groq => call_openai_compatible(
+                    &client,
+                    &raw_text,
+                    &cfg,
+                    active_app.as_ref(),
+                    OpenaiCompatConfig::groq(&cfg.groq_api_key),
+                ),
+                LlmProvider::Xai => call_openai_compatible(
+                    &client,
+                    &raw_text,
+                    &cfg,
+                    active_app.as_ref(),
+                    OpenaiCompatConfig::xai(&cfg.xai_api_key),
+                ),
                 LlmProvider::Anthropic => {
                     call_anthropic(&client, &raw_text, &cfg, active_app.as_ref())
+                }
+                LlmProvider::Gemini => {
+                    call_gemini(&client, &raw_text, &cfg, active_app.as_ref())
                 }
             };
             match result {
@@ -131,27 +179,87 @@ fn llm_thread_loop<R: Runtime>(
 
         // Cola no app ativo. Falha aqui não bloqueia — o usuário ainda vê o
         // texto na UI e pode copiar manualmente se precisar.
-        match insert::paste_text(&final_text) {
+        let pasted = match insert::paste_text(&final_text) {
             Ok(()) => {
                 let _ = app.emit("text-inserted", ());
+                true
             }
             Err(e) => {
                 let _ = app.emit("insert-error", format!("{:#}", e));
+                false
             }
-        }
+        };
 
         // Pipeline concluído — esconde overlay e restaura tray.
         visual::set(&app, visual::State::Idle);
+
+        // Beep de fim só toca se realmente coubemos o texto no app. Erro
+        // já foi sinalizado por `insert-error` (e o overlay some).
+        if pasted {
+            sound::play(&app, sound::Kind::End);
+        }
     }
 }
 
-// ---------- OpenAI ----------
+// ---------- OpenAI-compatível (OpenAI, OpenRouter, Groq, xAI) ----------
 
-fn call_openai(
+/// Configuração de um endpoint OpenAI-compatível. Os quatro providers
+/// (OpenAI, OpenRouter, Groq, xAI) compartilham o mesmo request/response;
+/// só variam URL, chave e alguns headers.
+struct OpenaiCompatConfig<'a> {
+    endpoint: &'static str,
+    api_key: &'a str,
+    /// Nome do provider — só usado em mensagens de erro pra facilitar debug.
+    label: &'static str,
+    /// Headers extras que alguns providers pedem/aceitam (ex: OpenRouter
+    /// recomenda `HTTP-Referer` e `X-Title` pra atribuição de tráfego).
+    extra_headers: &'static [(&'static str, &'static str)],
+}
+
+impl<'a> OpenaiCompatConfig<'a> {
+    fn openai(api_key: &'a str) -> Self {
+        Self {
+            endpoint: OPENAI_ENDPOINT,
+            api_key,
+            label: "OpenAI",
+            extra_headers: &[],
+        }
+    }
+    fn openrouter(api_key: &'a str) -> Self {
+        Self {
+            endpoint: OPENROUTER_ENDPOINT,
+            api_key,
+            label: "OpenRouter",
+            extra_headers: &[
+                ("HTTP-Referer", OPENROUTER_APP_URL),
+                ("X-Title", OPENROUTER_APP_TITLE),
+            ],
+        }
+    }
+    fn groq(api_key: &'a str) -> Self {
+        Self {
+            endpoint: GROQ_ENDPOINT,
+            api_key,
+            label: "Groq",
+            extra_headers: &[],
+        }
+    }
+    fn xai(api_key: &'a str) -> Self {
+        Self {
+            endpoint: XAI_ENDPOINT,
+            api_key,
+            label: "xAI",
+            extra_headers: &[],
+        }
+    }
+}
+
+fn call_openai_compatible(
     client: &reqwest::blocking::Client,
     raw_text: &str,
     cfg: &AppConfig,
     active_app: Option<&ActiveApp>,
+    provider: OpenaiCompatConfig<'_>,
 ) -> Result<String> {
     let system_prompt = build_system_prompt(cfg, active_app);
 
@@ -170,36 +278,46 @@ fn call_openai(
         ],
     };
 
-    let response = client
-        .post(OPENAI_ENDPOINT)
-        .bearer_auth(&cfg.openai_api_key)
-        .header("content-type", "application/json")
+    let mut req = client
+        .post(provider.endpoint)
+        .bearer_auth(provider.api_key)
+        .header("content-type", "application/json");
+    for (k, v) in provider.extra_headers {
+        req = req.header(*k, *v);
+    }
+
+    let response = req
         .json(&body)
         .send()
-        .context("falha ao enviar request para a API OpenAI")?;
+        .with_context(|| format!("falha ao enviar request para a API {}", provider.label))?;
 
     let status = response.status();
     if !status.is_success() {
         let body = response
             .text()
             .unwrap_or_else(|_| "(sem corpo de resposta)".to_string());
-        return Err(anyhow!("OpenAI API retornou {}: {}", status, body));
+        return Err(anyhow!(
+            "{} API retornou {}: {}",
+            provider.label,
+            status,
+            body
+        ));
     }
 
     let parsed: OpenaiResponse = response
         .json()
-        .context("resposta da OpenAI não é JSON válido")?;
+        .with_context(|| format!("resposta da {} não é JSON válido", provider.label))?;
 
     let text = parsed
         .choices
         .into_iter()
         .next()
-        .ok_or_else(|| anyhow!("resposta da OpenAI veio sem `choices`"))?
+        .ok_or_else(|| anyhow!("resposta da {} veio sem `choices`", provider.label))?
         .message
         .content;
 
     if text.trim().is_empty() {
-        return Err(anyhow!("resposta da OpenAI veio sem texto"));
+        return Err(anyhow!("resposta da {} veio sem texto", provider.label));
     }
 
     Ok(text.trim().to_string())
@@ -259,6 +377,79 @@ fn call_anthropic(
 
     if text.trim().is_empty() {
         return Err(anyhow!("resposta da Anthropic veio sem texto"));
+    }
+
+    Ok(text.trim().to_string())
+}
+
+// ---------- Google Gemini ----------
+
+fn call_gemini(
+    client: &reqwest::blocking::Client,
+    raw_text: &str,
+    cfg: &AppConfig,
+    active_app: Option<&ActiveApp>,
+) -> Result<String> {
+    let system_prompt = build_system_prompt(cfg, active_app);
+    let model = cfg.active_model();
+
+    // Gemini passa a chave como query param `?key=...` (não no header).
+    // O modelo entra no path: `.../models/{model}:generateContent`.
+    let url = format!(
+        "{}/{}:generateContent?key={}",
+        GEMINI_ENDPOINT_BASE, model, cfg.gemini_api_key
+    );
+
+    let body = GeminiRequest {
+        system_instruction: GeminiSystem {
+            parts: vec![GeminiPart {
+                text: &system_prompt,
+            }],
+        },
+        contents: vec![GeminiContent {
+            role: "user",
+            parts: vec![GeminiPart { text: raw_text }],
+        }],
+        generation_config: GeminiGenerationConfig {
+            max_output_tokens: MAX_TOKENS,
+        },
+    };
+
+    let response = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .context("falha ao enviar request para a API Gemini")?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response
+            .text()
+            .unwrap_or_else(|_| "(sem corpo de resposta)".to_string());
+        return Err(anyhow!("Gemini API retornou {}: {}", status, body));
+    }
+
+    let parsed: GeminiResponse = response
+        .json()
+        .context("resposta da Gemini não é JSON válido")?;
+
+    // Concatena todos os `parts.text` do primeiro candidato (normalmente há
+    // só um). Gemini raramente devolve múltiplos parts para texto simples.
+    let text: String = parsed
+        .candidates
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("resposta da Gemini veio sem `candidates`"))?
+        .content
+        .parts
+        .into_iter()
+        .map(|p| p.text)
+        .collect::<Vec<_>>()
+        .join("");
+
+    if text.trim().is_empty() {
+        return Err(anyhow!("resposta da Gemini veio sem texto"));
     }
 
     Ok(text.trim().to_string())
@@ -421,4 +612,57 @@ struct AnthropicResponse {
 enum AnthropicBlock {
     #[serde(rename = "text")]
     Text { text: String },
+}
+
+// ---------- Tipos do JSON: Google Gemini generateContent ----------
+
+#[derive(Serialize)]
+struct GeminiRequest<'a> {
+    system_instruction: GeminiSystem<'a>,
+    contents: Vec<GeminiContent<'a>>,
+    #[serde(rename = "generationConfig")]
+    generation_config: GeminiGenerationConfig,
+}
+
+#[derive(Serialize)]
+struct GeminiSystem<'a> {
+    parts: Vec<GeminiPart<'a>>,
+}
+
+#[derive(Serialize)]
+struct GeminiContent<'a> {
+    role: &'a str,
+    parts: Vec<GeminiPart<'a>>,
+}
+
+#[derive(Serialize)]
+struct GeminiPart<'a> {
+    text: &'a str,
+}
+
+#[derive(Serialize)]
+struct GeminiGenerationConfig {
+    #[serde(rename = "maxOutputTokens")]
+    max_output_tokens: u32,
+}
+
+#[derive(Deserialize)]
+struct GeminiResponse {
+    candidates: Vec<GeminiCandidate>,
+}
+
+#[derive(Deserialize)]
+struct GeminiCandidate {
+    content: GeminiResponseContent,
+}
+
+#[derive(Deserialize)]
+struct GeminiResponseContent {
+    parts: Vec<GeminiResponsePart>,
+}
+
+#[derive(Deserialize)]
+struct GeminiResponsePart {
+    #[serde(default)]
+    text: String,
 }

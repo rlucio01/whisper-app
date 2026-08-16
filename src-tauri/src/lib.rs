@@ -17,6 +17,7 @@ mod hotkey;
 mod insert;
 mod llm;
 mod models;
+mod sound;
 mod transcription;
 mod visual;
 

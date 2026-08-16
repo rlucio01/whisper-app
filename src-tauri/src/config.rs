@@ -9,11 +9,11 @@
 //!   - Todos os campos têm `#[serde(default)]` para que um `config.json` legado
 //!     (sem um campo novo) continue funcionando após updates. Não quebramos
 //!     retrocompatibilidade nem forçamos migrações.
-//!   - Suporta dois providers de LLM (OpenAI e Anthropic). O campo `provider`
-//!     escolhe qual é usado; as duas chaves ficam em campos separados para o
-//!     usuário poder trocar sem precisar reconfigurar.
-//!   - A UI de settings (etapa 8) vai chamar `load` / `save` via comandos Tauri.
-//!     Por enquanto o usuário edita o arquivo manualmente.
+//!   - Suporta seis providers de LLM: OpenAI, Anthropic, OpenRouter, Groq,
+//!     Google Gemini e xAI (Grok). O campo `provider` escolhe qual é usado;
+//!     cada um tem seu próprio campo de chave para o usuário poder trocar sem
+//!     precisar reconfigurar as outras.
+//!   - A UI de settings chama `load` / `save` via comandos Tauri.
 //!   - Envolvido em `Arc<Mutex<AppConfig>>` como state Tauri — assim o LLM
 //!     service lê a versão mais recente a cada chamada, sem restart do app.
 
@@ -28,13 +28,25 @@ use tauri::{AppHandle, Manager, Runtime};
 /// users; users existentes mantêm o que estiver salvo no `config.json`.
 const DEFAULT_OPENAI_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_ANTHROPIC_MODEL: &str = "claude-haiku-4-5-20251001";
+const DEFAULT_OPENROUTER_MODEL: &str = "openai/gpt-4o-mini";
+const DEFAULT_GROQ_MODEL: &str = "llama-3.3-70b-versatile";
+const DEFAULT_GEMINI_MODEL: &str = "gemini-2.0-flash";
+const DEFAULT_XAI_MODEL: &str = "grok-3-mini";
 
 /// Qual API de LLM usar para reformatar/traduzir.
+///
+/// Os quatro últimos (OpenRouter, Groq, xAI) usam a API compatível com o
+/// Chat Completions da OpenAI — mudam só endpoint, chave e headers. Gemini
+/// tem formato próprio (`generateContent`). Anthropic tem o `messages` dela.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LlmProvider {
     Openai,
     Anthropic,
+    Openrouter,
+    Groq,
+    Gemini,
+    Xai,
 }
 
 /// Onde a transcrição acontece.
@@ -46,6 +58,10 @@ pub enum TranscriptionProvider {
     /// OpenAI Whisper API (whisper-1) — mais preciso, mas depende de rede
     /// e da chave da OpenAI. Envia o áudio pro servidor da OpenAI.
     OpenaiCloud,
+    /// Groq Whisper API (whisper-large-v3-turbo) — mesmo formato de request
+    /// da OpenAI (multipart), mas a inferência roda em LPU: normalmente bem
+    /// mais rápida que a OpenAI pra áudios curtos. Usa `groq_api_key`.
+    GroqCloud,
 }
 
 impl Default for TranscriptionProvider {
@@ -122,7 +138,8 @@ pub struct AppConfig {
     pub provider: LlmProvider,
 
     /// Chave da API da OpenAI (formato `sk-...` ou `sk-proj-...`).
-    /// Só é usada se `provider = "openai"`.
+    /// Só é usada se `provider = "openai"`. Também é a chave usada para
+    /// transcrição via `openai_cloud` (independente do provider de LLM).
     #[serde(default)]
     pub openai_api_key: String,
 
@@ -131,9 +148,33 @@ pub struct AppConfig {
     #[serde(default)]
     pub anthropic_api_key: String,
 
+    /// Chave da API do OpenRouter (formato `sk-or-v1-...`).
+    /// Só é usada se `provider = "openrouter"`.
+    #[serde(default)]
+    pub openrouter_api_key: String,
+
+    /// Chave da API do Groq (formato `gsk_...`).
+    /// Só é usada se `provider = "groq"`.
+    #[serde(default)]
+    pub groq_api_key: String,
+
+    /// Chave da API do Google Gemini (formato `AIza...`).
+    /// Só é usada se `provider = "gemini"`.
+    #[serde(default)]
+    pub gemini_api_key: String,
+
+    /// Chave da API do xAI (formato `xai-...`).
+    /// Só é usada se `provider = "xai"`.
+    #[serde(default)]
+    pub xai_api_key: String,
+
     /// Modelo a usar. **Deve corresponder ao provider ativo**:
     ///   - OpenAI: "gpt-4o-mini", "gpt-4o", "gpt-5", etc.
     ///   - Anthropic: "claude-haiku-4-5-20251001", "claude-sonnet-4-6", etc.
+    ///   - OpenRouter: "openai/gpt-4o-mini", "anthropic/claude-haiku-4.5", etc.
+    ///   - Groq: "llama-3.3-70b-versatile", "llama-3.1-8b-instant", etc.
+    ///   - Gemini: "gemini-2.0-flash", "gemini-2.5-pro", etc.
+    ///   - xAI: "grok-3-mini", "grok-4-latest", etc.
     ///
     /// Se estiver vazio, usamos o default do provider ativo (via `active_model`).
     #[serde(default)]
@@ -168,6 +209,12 @@ pub struct AppConfig {
     /// Se `false`, o prompt é o mesmo pra qualquer app.
     #[serde(default = "default_true")]
     pub adapt_prompt_to_active_app: bool,
+
+    /// Toca um beep curto ao começar a gravação e outro ao terminar o
+    /// pipeline (texto colado). Ajuda como feedback quando o app está
+    /// no tray e a janela principal não está visível.
+    #[serde(default = "default_true")]
+    pub sound_feedback: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,6 +235,10 @@ impl AppConfig {
         match self.provider {
             LlmProvider::Openai => &self.openai_api_key,
             LlmProvider::Anthropic => &self.anthropic_api_key,
+            LlmProvider::Openrouter => &self.openrouter_api_key,
+            LlmProvider::Groq => &self.groq_api_key,
+            LlmProvider::Gemini => &self.gemini_api_key,
+            LlmProvider::Xai => &self.xai_api_key,
         }
     }
 
@@ -199,6 +250,10 @@ impl AppConfig {
         match self.provider {
             LlmProvider::Openai => DEFAULT_OPENAI_MODEL,
             LlmProvider::Anthropic => DEFAULT_ANTHROPIC_MODEL,
+            LlmProvider::Openrouter => DEFAULT_OPENROUTER_MODEL,
+            LlmProvider::Groq => DEFAULT_GROQ_MODEL,
+            LlmProvider::Gemini => DEFAULT_GEMINI_MODEL,
+            LlmProvider::Xai => DEFAULT_XAI_MODEL,
         }
     }
 }
@@ -209,6 +264,10 @@ impl Default for AppConfig {
             provider: LlmProvider::default(),
             openai_api_key: String::new(),
             anthropic_api_key: String::new(),
+            openrouter_api_key: String::new(),
+            groq_api_key: String::new(),
+            gemini_api_key: String::new(),
+            xai_api_key: String::new(),
             llm_model: String::new(),
             translate: TranslateConfig::default(),
             visual_indicator: VisualIndicator::default(),
@@ -216,6 +275,7 @@ impl Default for AppConfig {
             transcription_provider: TranscriptionProvider::default(),
             whisper_model: WhisperModel::default(),
             adapt_prompt_to_active_app: true,
+            sound_feedback: true,
         }
     }
 }

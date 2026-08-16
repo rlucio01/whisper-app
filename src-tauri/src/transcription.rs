@@ -1,12 +1,15 @@
 //! Transcrição de áudio.
 //!
-//! Suporta dois modos (escolhidos pelo config `transcription_provider`):
+//! Suporta três modos (escolhidos pelo config `transcription_provider`):
 //!   - **Local** — whisper.cpp via `whisper-rs`, offline. Usa o modelo
 //!     escolhido em `config.whisper_model` (tiny/base/small/medium/large-turbo);
 //!     o arquivo é baixado pela UI de settings.
 //!   - **OpenAI Cloud** — API `POST /v1/audio/transcriptions` com o modelo
 //!     `whisper-1`. Envia o WAV como multipart/form-data. Depende da
 //!     `openai_api_key` do config.
+//!   - **Groq Cloud** — mesmo formato de request (a API do Groq é compatível
+//!     com a da OpenAI), mas roda `whisper-large-v3-turbo` em LPU — bem mais
+//!     rápido pra áudios curtos. Depende da `groq_api_key` do config.
 //!
 //! ## Thread dedicada
 //!
@@ -40,6 +43,12 @@ const WHISPER_SAMPLE_RATE: u32 = 16_000;
 /// Endpoint da OpenAI Whisper API. Modelo `whisper-1` é o único público.
 const OPENAI_ENDPOINT: &str = "https://api.openai.com/v1/audio/transcriptions";
 const OPENAI_MODEL: &str = "whisper-1";
+
+/// Endpoint do Groq — compatível com o formato multipart da OpenAI.
+/// `whisper-large-v3-turbo` é o melhor custo/latência do catálogo deles
+/// pra transcrição (o `whisper-large-v3` normal é mais preciso mas mais lento).
+const GROQ_ENDPOINT: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
+const GROQ_MODEL: &str = "whisper-large-v3-turbo";
 
 /// Timeout total pra chamada cloud. Áudios longos podem levar dezenas de
 /// segundos; 5min é folgado o suficiente pra qualquer ditado normal.
@@ -150,8 +159,30 @@ fn transcription_thread_loop<R: Runtime>(
                         &mut loaded,
                     ),
                     TranscriptionProvider::OpenaiCloud => {
-                        let _ = app.emit("transcription-status", "enviando_para_openai");
-                        transcribe_cloud(&client, &wav_path, &cfg_snapshot.openai_api_key)
+                        let _ = app.emit("transcription-status", "enviando_para_cloud");
+                        transcribe_cloud(
+                            &client,
+                            &wav_path,
+                            CloudTranscribeConfig {
+                                endpoint: OPENAI_ENDPOINT,
+                                model: OPENAI_MODEL,
+                                api_key: &cfg_snapshot.openai_api_key,
+                                label: "OpenAI",
+                            },
+                        )
+                    }
+                    TranscriptionProvider::GroqCloud => {
+                        let _ = app.emit("transcription-status", "enviando_para_cloud");
+                        transcribe_cloud(
+                            &client,
+                            &wav_path,
+                            CloudTranscribeConfig {
+                                endpoint: GROQ_ENDPOINT,
+                                model: GROQ_MODEL,
+                                api_key: &cfg_snapshot.groq_api_key,
+                                label: "Groq",
+                            },
+                        )
                     }
                 };
 
@@ -276,41 +307,53 @@ fn transcribe_wav_local(ctx: &WhisperContext, wav_path: &Path) -> Result<String>
     Ok(text.trim().to_string())
 }
 
-// ---------- Modo cloud (OpenAI Whisper API) ----------
+// ---------- Modo cloud (OpenAI ou Groq Whisper API — mesmo formato) ----------
+
+/// Endpoint, modelo e chave de um provider de transcrição cloud. OpenAI e
+/// Groq compartilham o mesmo formato de request/response (multipart com
+/// `model` + `file`, resposta `{ text }`), então uma função só atende os dois.
+struct CloudTranscribeConfig<'a> {
+    endpoint: &'static str,
+    model: &'static str,
+    api_key: &'a str,
+    /// Nome do provider — usado em mensagens de erro.
+    label: &'static str,
+}
 
 fn transcribe_cloud(
     client: &reqwest::blocking::Client,
     wav_path: &Path,
-    api_key: &str,
+    cfg: CloudTranscribeConfig<'_>,
 ) -> Result<String> {
-    if api_key.trim().is_empty() {
+    if cfg.api_key.trim().is_empty() {
         return Err(anyhow!(
-            "Nenhuma chave da OpenAI configurada.\n\
-             Vá em Configurações e cole sua chave (`sk-...`) — ou troque\n\
-             a transcrição de volta para \"Local\"."
+            "Nenhuma chave da {} configurada.\n\
+             Vá em Configurações e cole sua chave — ou troque a transcrição\n\
+             de volta para \"Local\".",
+            cfg.label
         ));
     }
 
-    // Downsample pra mono 16kHz antes de enviar. A OpenAI internamente já
+    // Downsample pra mono 16kHz antes de enviar. O provider internamente já
     // converte, então mandar o original em 48kHz stereo só desperdiça upload.
     // Reduzir aqui corta o payload em ~5-10x (44.1kHz stereo → 16kHz mono),
     // o que em conexões medianas economiza alguns segundos por transcrição.
     let (send_path, _cleanup) = prepare_cloud_upload(wav_path)?;
 
     // `Form::file` lê o arquivo por streaming, sem carregar tudo em RAM.
-    // A extensão `.wav` no filename orienta o parser da OpenAI.
+    // A extensão `.wav` no filename orienta o parser do provider.
     let form = reqwest::blocking::multipart::Form::new()
-        .text("model", OPENAI_MODEL)
+        .text("model", cfg.model)
         .text("response_format", "json")
         .file("file", &send_path)
         .with_context(|| format!("falha ao anexar {}", send_path.display()))?;
 
     let response = client
-        .post(OPENAI_ENDPOINT)
-        .bearer_auth(api_key)
+        .post(cfg.endpoint)
+        .bearer_auth(cfg.api_key)
         .multipart(form)
         .send()
-        .context("falha ao enviar áudio para a API OpenAI")?;
+        .with_context(|| format!("falha ao enviar áudio para a API {}", cfg.label))?;
 
     let status = response.status();
     if !status.is_success() {
@@ -318,7 +361,8 @@ fn transcribe_cloud(
             .text()
             .unwrap_or_else(|_| "(sem corpo de resposta)".to_string());
         return Err(anyhow!(
-            "OpenAI Whisper API retornou {}: {}",
+            "{} Whisper API retornou {}: {}",
+            cfg.label,
             status,
             body
         ));
@@ -326,10 +370,10 @@ fn transcribe_cloud(
 
     let parsed: CloudResponse = response
         .json()
-        .context("resposta da OpenAI Whisper não é JSON válido")?;
+        .with_context(|| format!("resposta da {} Whisper não é JSON válido", cfg.label))?;
 
     if parsed.text.trim().is_empty() {
-        return Err(anyhow!("OpenAI Whisper retornou texto vazio"));
+        return Err(anyhow!("{} Whisper retornou texto vazio", cfg.label));
     }
 
     Ok(parsed.text.trim().to_string())

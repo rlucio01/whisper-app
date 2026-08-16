@@ -15,7 +15,7 @@ Rust (src-tauri/src/)         — lógica de sistema:
   ├── config                   settings persistentes em JSON
   ├── hotkey                   atalho global configurável
   ├── insert                   clipboard + Ctrl+V via enigo + arboard
-  ├── llm                      OpenAI/Anthropic para reformatar + traduzir
+  ├── llm                      OpenAI/Anthropic/OpenRouter/Groq/Gemini/xAI para reformatar + traduzir
   ├── models                   download e gerenciamento dos modelos Whisper
   ├── transcription            whisper.cpp local OU OpenAI Whisper API
   └── visual                   overlay flutuante + tray colorido
@@ -52,12 +52,27 @@ Fluxo do usuário:
 `Arc<Mutex<AppConfig>>` gerenciado como state Tauri. Todos os campos com
 `#[serde(default)]` — arquivos antigos abrem sem migração. Campos:
 
-- `provider`, `openai_api_key`, `anthropic_api_key`, `llm_model` — LLM.
+- `provider` — qual API de LLM usar. Suporta 6: `openai`, `anthropic`,
+  `openrouter`, `groq`, `gemini`, `xai`. Os quatro OpenAI-compat
+  (openai, openrouter, groq, xai) compartilham `call_openai_compatible()`
+  em `llm.rs` — só variam endpoint, chave e headers extras. Gemini tem
+  função própria (formato `generateContent`), Anthropic também (`messages`).
+- `openai_api_key`, `anthropic_api_key`, `openrouter_api_key`,
+  `groq_api_key`, `gemini_api_key`, `xai_api_key` — uma chave por provider,
+  todas ficam salvas ao trocar de provider. `openai_api_key` também é a
+  chave usada por `transcription_provider = openai_cloud`.
+- `llm_model` — vazio usa o default do provider ativo. A UI oferece
+  dropdown com modelos curados por provider + opção "personalizado" que
+  vira input de texto livre.
 - `translate: { enabled, target_language }` — tradução automática.
 - `visual_indicator: none|floating|tray|both` — indicador visual.
 - `hotkey: String` — atalho no formato accelerator (`"F9"`, `"Ctrl+Shift+K"`,
   `"Alt+Space"`, etc.). Trocar em runtime via `hotkey::replace`.
-- `transcription_provider: local|openai_cloud` — onde transcrever.
+- `transcription_provider: local|openai_cloud|groq_cloud` — onde
+  transcrever. `openai_cloud` e `groq_cloud` compartilham a mesma função
+  (`transcribe_cloud` em `transcription.rs`, formato multipart idêntico) —
+  Groq roda `whisper-large-v3-turbo` em LPU e costuma ser mais rápido que
+  a OpenAI pra ditados curtos.
 - `whisper_model: tiny|base|small|medium|large_turbo` — modelo local.
 - `adapt_prompt_to_active_app: bool` — enviar hint contextual pro LLM.
 
@@ -122,8 +137,9 @@ Download com progresso via `models::spawn_download` — escreve em `.part` e
 renomeia atomicamente. Eventos emitidos:
 `model-download-progress` / `-complete` / `-error`.
 
-Modo cloud alternativo: OpenAI Whisper API (`whisper-1`). Áudio é downsampled
-pra mono 16kHz antes do upload.
+Modos cloud alternativos: OpenAI Whisper API (`whisper-1`) ou Groq
+(`whisper-large-v3-turbo`, mais rápido). Áudio é downsampled pra mono 16kHz
+antes do upload em ambos.
 
 ## Eventos Tauri emitidos
 
