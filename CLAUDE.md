@@ -88,6 +88,12 @@ Fluxo do usuário:
   Groq roda `whisper-large-v3-turbo` em LPU e costuma ser mais rápido que
   a OpenAI pra ditados curtos.
 - `whisper_model: tiny|base|small|medium|large_turbo` — modelo local.
+- `microphone: String` — nome do dispositivo de entrada (`cpal::Device::name()`).
+  Vazio = device default do SO. `audio.rs` resolve o device no momento do
+  `Command::Start` (lê `SharedConfig` direto na thread de áudio); se o
+  dispositivo salvo não existir mais, a gravação falha com erro amigável.
+  Comando `list_microphones` (usa `audio::list_devices()`) alimenta o
+  dropdown em settings.
 - `adapt_prompt_to_active_app: bool` — enviar hint contextual pro LLM.
 
 Autostart **não** vive no `config.json` — o `tauri-plugin-autostart` já
@@ -195,8 +201,10 @@ em 2026-08-16:
 **Colar última transcrição** — implementado (`repaste_hotkey`, opcional).
 Ver `hotkey.rs` (`repaste_handler`) e `llm::SharedLastTranscript`.
 
-- **Seleção de microfone** — hoje usa o device default do SO; escolher
-  explicitamente é barato via `cpal::host.input_devices()`.
+**Seleção de microfone** — implementado (`microphone` no config, vazio =
+default do SO). Ver `audio::list_devices()` e `commands::list_microphones`.
+
+Restam do roadmap levantado das telas do Amical:
 - Mute do áudio do sistema durante a gravação (evita capturar vídeo/música
   tocando no fundo) — menor prioridade.
 - Widget sempre visível (não só durante o pipeline) — menor prioridade.

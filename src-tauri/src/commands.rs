@@ -9,6 +9,7 @@
 use tauri::{AppHandle, Runtime, State};
 use tauri_plugin_autostart::ManagerExt;
 
+use crate::audio;
 use crate::config::{self, AppConfig, SharedConfig, WhisperModel};
 use crate::history::{self, HistoryEntry};
 use crate::hotkey;
@@ -138,6 +139,12 @@ pub fn open_config_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     // gerenciador de arquivos padrão do SO.
     tauri_plugin_opener::open_path(parent, None::<&str>).map_err(|e| format!("{:#}", e))?;
     Ok(())
+}
+
+/// Lista os microfones disponíveis, pro dropdown de escolha em settings.
+#[tauri::command]
+pub fn list_microphones() -> Result<Vec<String>, String> {
+    audio::list_devices().map_err(|e| format!("{:#}", e))
 }
 
 /// Lista o histórico de ditados, mais recente primeiro.

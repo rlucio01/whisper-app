@@ -30,6 +30,7 @@ use anyhow::{anyhow, Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
+use crate::config::SharedConfig;
 use crate::transcription::TranscriptionService;
 use crate::visual;
 
@@ -96,7 +97,12 @@ fn audio_thread_loop<R: Runtime>(cmd_rx: mpsc::Receiver<Command>, app: AppHandle
                     // Ignora Start duplicado (usuário martelou o hotkey).
                     continue;
                 }
-                match start_recording() {
+                // Snapshot do device escolhido em settings. Vazio = default do SO.
+                let device_name = app
+                    .try_state::<SharedConfig>()
+                    .and_then(|s| s.lock().ok().map(|g| g.microphone.clone()))
+                    .unwrap_or_default();
+                match start_recording(&device_name) {
                     Ok(r) => {
                         recording = Some(r);
                     }
@@ -131,12 +137,25 @@ fn audio_thread_loop<R: Runtime>(cmd_rx: mpsc::Receiver<Command>, app: AppHandle
     }
 }
 
-/// Abre o microfone padrão e começa a acumular samples no buffer compartilhado.
-fn start_recording() -> Result<Recording> {
+/// Abre o microfone escolhido (ou o default do SO, se `device_name` vazio) e
+/// começa a acumular samples no buffer compartilhado.
+fn start_recording(device_name: &str) -> Result<Recording> {
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| anyhow!("nenhum dispositivo de entrada de áudio encontrado"))?;
+    let device = if device_name.trim().is_empty() {
+        host.default_input_device()
+            .ok_or_else(|| anyhow!("nenhum dispositivo de entrada de áudio encontrado"))?
+    } else {
+        host.input_devices()
+            .context("falha ao listar dispositivos de entrada")?
+            .find(|d| d.name().map(|n| n == device_name).unwrap_or(false))
+            .ok_or_else(|| {
+                anyhow!(
+                    "microfone \"{}\" não encontrado — verifique se ainda está \
+                     conectado, ou escolha outro em Configurações.",
+                    device_name
+                )
+            })?
+    };
 
     let config = device
         .default_input_config()
@@ -244,6 +263,16 @@ fn finalize_recording(recording: Recording) -> Result<PathBuf> {
     writer.finalize().context("falha ao finalizar WAV")?;
 
     Ok(path)
+}
+
+/// Lista os nomes de todos os dispositivos de entrada de áudio disponíveis.
+/// Usado pela UI de settings pra montar o dropdown de escolha de microfone.
+pub fn list_devices() -> Result<Vec<String>> {
+    let host = cpal::default_host();
+    let devices = host
+        .input_devices()
+        .context("falha ao listar dispositivos de entrada")?;
+    Ok(devices.filter_map(|d| d.name().ok()).collect())
 }
 
 /// Path único para o WAV, baseado no timestamp em ms.

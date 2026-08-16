@@ -115,6 +115,7 @@ pub fn run() {
             commands::open_config_folder,
             commands::pause_hotkey,
             commands::resume_hotkey,
+            commands::list_microphones,
             commands::list_whisper_models,
             commands::download_whisper_model,
             commands::delete_whisper_model,

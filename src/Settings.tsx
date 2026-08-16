@@ -34,6 +34,7 @@ interface AppConfig {
   repaste_hotkey: string;
   transcription_provider: TranscriptionProvider;
   whisper_model: WhisperModelSlug;
+  microphone: string;
   adapt_prompt_to_active_app: boolean;
   sound_feedback: boolean;
 }
@@ -391,6 +392,11 @@ export default function Settings({ onBack }: SettingsProps) {
           </>
         )}
       </section>
+
+      <MicrophonePicker
+        selected={config.microphone}
+        onSelect={(name) => setConfig({ ...config, microphone: name })}
+      />
 
       <section className="field">
         <label className="checkbox-row">
@@ -789,6 +795,72 @@ function formatProgress(p: DownloadProgress): string {
   if (p.total === 0) return "iniciando…";
   const pct = Math.min(100, (p.downloaded / p.total) * 100);
   return `${formatMB(p.downloaded)} / ${formatMB(p.total)} (${pct.toFixed(0)}%)`;
+}
+
+// ---------- MicrophonePicker ----------
+
+interface MicrophonePickerProps {
+  selected: string;
+  onSelect: (deviceName: string) => void;
+}
+
+/** Dropdown de escolha de microfone. Lista vazia = mostra só "Padrão do
+ *  sistema" (o backend já usa o device default do SO quando `selected` é
+ *  vazio, então a UI não bloqueia nesse caso). */
+function MicrophonePicker({ selected, onSelect }: MicrophonePickerProps) {
+  const [devices, setDevices] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = () => {
+    setLoading(true);
+    invoke<string[]>("list_microphones")
+      .then((list) => {
+        setDevices(list);
+        setError(null);
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(refresh, []);
+
+  return (
+    <section className="field">
+      <label className="field-label" htmlFor="microphone">
+        Microfone
+      </label>
+      <div className="hotkey-capture">
+        <select
+          id="microphone"
+          className="text-input"
+          value={selected}
+          onChange={(e) => onSelect(e.target.value)}
+        >
+          <option value="">Padrão do sistema</option>
+          {devices.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={refresh}
+          disabled={loading}
+          title="Atualizar lista de microfones"
+        >
+          {loading ? "…" : "↻"}
+        </button>
+      </div>
+      {error && <p className="model-error">{error}</p>}
+      <p className="field-hint">
+        Escolha qual microfone usar pra gravar. Se o dispositivo salvo for
+        desconectado, a gravação falha com um erro pedindo pra trocar aqui.
+      </p>
+    </section>
+  );
 }
 
 // ---------- HotkeyCapture ----------

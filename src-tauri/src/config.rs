@@ -217,6 +217,13 @@ pub struct AppConfig {
     #[serde(default)]
     pub whisper_model: WhisperModel,
 
+    /// Nome do dispositivo de entrada de áudio a usar (exatamente como
+    /// `cpal` reporta em `Device::name()`). Vazio = usa o device default do
+    /// SO. Se o dispositivo salvo não existir mais (desconectado), a
+    /// gravação falha com uma mensagem pedindo pra escolher outro.
+    #[serde(default)]
+    pub microphone: String,
+
     /// Se `true`, o LLM ganha um hint contextual baseado no app onde a
     /// gravação foi disparada (chat casual x email formal x IDE etc.).
     /// Se `false`, o prompt é o mesmo pra qualquer app.
@@ -289,6 +296,7 @@ impl Default for AppConfig {
             repaste_hotkey: String::new(),
             transcription_provider: TranscriptionProvider::default(),
             whisper_model: WhisperModel::default(),
+            microphone: String::new(),
             adapt_prompt_to_active_app: true,
             sound_feedback: true,
         }
