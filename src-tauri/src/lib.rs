@@ -69,6 +69,18 @@ pub fn run() {
                 Arc::new(Mutex::new(false));
             app.manage(shared_recording_active);
 
+            // Último texto formatado, usado pelo atalho "recolar última
+            // transcrição". Semeado com a entrada mais recente do histórico
+            // (se houver) — assim o atalho já funciona logo após o boot,
+            // sem precisar ditar algo primeiro nessa sessão.
+            let last_transcript_seed = history::list(app.handle())
+                .ok()
+                .and_then(|list| list.into_iter().next())
+                .map(|e| e.formatted_text);
+            let shared_last_transcript: llm::SharedLastTranscript =
+                Arc::new(Mutex::new(last_transcript_seed));
+            app.manage(shared_last_transcript);
+
             // Sobe as threads de background e guarda os handles como state.
             // Ordem importa (dependência entre serviços):
             //   1. LlmService     (final da cadeia)

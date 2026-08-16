@@ -27,7 +27,7 @@
 //! A chamada HTTP é bloqueante (via `reqwest::blocking`), então cada request
 //! bloqueia essa thread — não bloqueia o UI nem o hotkey.
 
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -64,6 +64,11 @@ const MAX_TOKENS: u32 = 2048;
 /// Timeout total da chamada HTTP (conexão + resposta). Se o LLM demorar
 /// mais que isso, aborta e o usuário vê "format-error".
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Último texto formatado com sucesso — lido pelo atalho "recolar última
+/// transcrição" em `hotkey.rs`. `None` até o primeiro ditado da sessão (ou
+/// semeado com a entrada mais recente do histórico no boot — ver `lib.rs`).
+pub type SharedLastTranscript = Arc<Mutex<Option<String>>>;
 
 pub struct LlmService {
     cmd_tx: mpsc::Sender<String>,
@@ -181,10 +186,16 @@ fn llm_thread_loop<R: Runtime>(
         // Sempre emite o texto pronto — a UI mostra antes da colagem.
         let _ = app.emit("format-complete", final_text.clone());
 
-        // Salva no histórico (se não for vazio — evita poluir com toques
-        // acidentais de hotkey que não capturaram fala nenhuma).
+        // Salva no histórico e atualiza o "último texto" (se não for vazio —
+        // evita poluir com toques acidentais de hotkey que não capturaram
+        // fala nenhuma).
         if !final_text.trim().is_empty() {
             crate::history::append(&app, &raw_text_for_history, &final_text);
+            if let Some(state) = app.try_state::<SharedLastTranscript>() {
+                if let Ok(mut guard) = state.lock() {
+                    *guard = Some(final_text.clone());
+                }
+            }
         }
 
         // Cola no app ativo. Falha aqui não bloqueia — o usuário ainda vê o

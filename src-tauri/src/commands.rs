@@ -47,6 +47,7 @@ pub fn save_config<R: Runtime>(
             .map_err(|_| "config mutex envenenado".to_string())?;
         guard.hotkey.trim() != new_config.hotkey.trim()
             || guard.hands_free_hotkey.trim() != new_config.hands_free_hotkey.trim()
+            || guard.repaste_hotkey.trim() != new_config.repaste_hotkey.trim()
     };
 
     if hotkeys_changed {

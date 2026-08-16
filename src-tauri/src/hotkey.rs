@@ -1,10 +1,12 @@
 //! Registro e handler dos atalhos globais.
 //!
-//! Dois modos, cada um com seu próprio atalho configurável:
+//! Três modos, cada um com seu próprio atalho configurável:
 //!   - **Push-to-talk** (`hotkey`) — segura pra gravar, solta pra parar.
 //!     Sempre ativo; usa `DEFAULT_HOTKEY` se o campo estiver vazio.
 //!   - **Hands-free** (`hands_free_hotkey`) — toque pra começar, toque de
 //!     novo pra parar (não precisa segurar). Opcional — vazio = desativado.
+//!   - **Recolar última transcrição** (`repaste_hotkey`) — toque pra colar
+//!     de novo o último texto formatado, sem regravar. Opcional.
 //!
 //! Os dois modos compartilham um único flag (`SharedRecordingActive`): tanto
 //! iniciar quanto parar, seja por qual atalho for, lê/escreve o mesmo estado.
@@ -35,6 +37,8 @@ use tauri_plugin_global_shortcut::{
 use crate::active_app::{self, SharedActiveApp};
 use crate::audio::AudioService;
 use crate::config::{AppConfig, SharedConfig};
+use crate::insert;
+use crate::llm::SharedLastTranscript;
 use crate::sound;
 use crate::visual;
 
@@ -56,10 +60,11 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> SetupResult {
     Ok(())
 }
 
-/// Desregistra tudo e re-registra os dois atalhos (push-to-talk + hands-free,
-/// esse último só se não estiver vazio) a partir de `cfg`. Valida os dois
-/// ANTES de desregistrar qualquer coisa — se algum for inválido, os atalhos
-/// anteriores continuam ativos e nada muda.
+/// Desregistra tudo e re-registra os atalhos configurados (push-to-talk +
+/// hands-free e recolar, esses dois últimos só se não estiverem vazios) a
+/// partir de `cfg`. Valida todos ANTES de desregistrar qualquer coisa — se
+/// algum for inválido ou colidir com outro, os atalhos anteriores continuam
+/// ativos e nada muda.
 pub fn sync<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<(), String> {
     let ptt_string = if cfg.hotkey.trim().is_empty() {
         DEFAULT_HOTKEY.to_string()
@@ -69,17 +74,18 @@ pub fn sync<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<(), Strin
     let ptt_shortcut = parse_hotkey(&ptt_string)?;
 
     let hf_string = cfg.hands_free_hotkey.trim();
-    let hf_shortcut = if hf_string.is_empty() {
-        None
-    } else {
-        if hf_string.eq_ignore_ascii_case(&ptt_string) {
-            return Err(format!(
-                "o atalho hands-free não pode ser igual ao push-to-talk (\"{}\")",
-                ptt_string
-            ));
-        }
-        Some(parse_hotkey(hf_string)?)
-    };
+    let hf_shortcut = parse_optional_distinct(
+        hf_string,
+        "hands-free",
+        &[("push-to-talk", &ptt_string)],
+    )?;
+
+    let rp_string = cfg.repaste_hotkey.trim();
+    let rp_shortcut = parse_optional_distinct(
+        rp_string,
+        "de recolar última transcrição",
+        &[("push-to-talk", &ptt_string), ("hands-free", hf_string)],
+    )?;
 
     let gs = app.global_shortcut();
     gs.unregister_all()
@@ -93,7 +99,35 @@ pub fn sync<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<(), Strin
             .map_err(|e| format!("falha ao registrar atalho hands-free: {}", e))?;
     }
 
+    if let Some(shortcut) = rp_shortcut {
+        gs.on_shortcut(shortcut, repaste_handler())
+            .map_err(|e| format!("falha ao registrar atalho de recolar: {}", e))?;
+    }
+
     Ok(())
+}
+
+/// Valida uma combinação opcional (`value` vazio = desativado, retorna
+/// `None`) contra uma lista de combinações já em uso — erro amigável se
+/// colidir com alguma. Usado pra `hands_free_hotkey` e `repaste_hotkey`,
+/// que compartilham essa mesma regra ("não pode repetir os outros atalhos").
+fn parse_optional_distinct(
+    value: &str,
+    label: &str,
+    taken: &[(&str, &str)],
+) -> Result<Option<Shortcut>, String> {
+    if value.is_empty() {
+        return Ok(None);
+    }
+    for (other_label, other_value) in taken {
+        if value.eq_ignore_ascii_case(other_value) {
+            return Err(format!(
+                "o atalho {} não pode ser igual ao {} (\"{}\")",
+                label, other_label, other_value
+            ));
+        }
+    }
+    Ok(Some(parse_hotkey(value)?))
 }
 
 /// Pausa temporariamente todos os atalhos globais. Usado pela UI de settings
@@ -156,6 +190,35 @@ fn hands_free_handler<R: Runtime>(
             end_recording(app);
         } else {
             begin_recording(app);
+        }
+    }
+}
+
+/// Handler do atalho "recolar última transcrição": pega o último texto
+/// formatado com sucesso (guardado por `llm.rs`) e cola de novo no app
+/// ativo, sem regravar. Só reage ao `Pressed` — é um toque, não um "segurar".
+/// Se nada foi ditado ainda nessa sessão (ou desde o boot, que semeia com a
+/// entrada mais recente do histórico), simplesmente não faz nada.
+fn repaste_handler<R: Runtime>(
+) -> impl Fn(&AppHandle<R>, &Shortcut, ShortcutEvent) + Send + Sync + 'static {
+    |app, _sc, event| {
+        if event.state() != ShortcutState::Pressed {
+            return;
+        }
+        let Some(state) = app.try_state::<SharedLastTranscript>() else {
+            return;
+        };
+        let Some(text) = state.lock().ok().and_then(|g| g.clone()) else {
+            return;
+        };
+        match insert::paste_text(&text) {
+            Ok(()) => {
+                let _ = app.emit("text-inserted", ());
+                sound::play(app, sound::Kind::End);
+            }
+            Err(e) => {
+                let _ = app.emit("insert-error", format!("{:#}", e));
+            }
         }
     }
 }

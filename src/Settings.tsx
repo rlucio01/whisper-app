@@ -31,6 +31,7 @@ interface AppConfig {
   visual_indicator: VisualIndicator;
   hotkey: string;
   hands_free_hotkey: string;
+  repaste_hotkey: string;
   transcription_provider: TranscriptionProvider;
   whisper_model: WhisperModelSlug;
   adapt_prompt_to_active_app: boolean;
@@ -512,6 +513,22 @@ export default function Settings({ onBack }: SettingsProps) {
           Toque uma vez pra começar a gravar, toque de novo pra parar — sem
           precisar segurar. Útil pra ditados longos. Precisa ser diferente do
           atalho push-to-talk acima. Deixe desativado se não for usar.
+        </p>
+      </section>
+
+      <section className="field">
+        <label className="field-label">Atalho de recolar (opcional)</label>
+        <HotkeyCapture
+          value={config.repaste_hotkey}
+          onChange={(hk) => setConfig({ ...config, repaste_hotkey: hk })}
+          placeholder="Desativado"
+          onClear={() => setConfig({ ...config, repaste_hotkey: "" })}
+        />
+        <p className="field-hint">
+          Cola de novo a última transcrição no app ativo, sem precisar
+          regravar. Também funciona logo após abrir o app, usando a entrada
+          mais recente do histórico. Precisa ser diferente dos outros dois
+          atalhos acima.
         </p>
       </section>
 

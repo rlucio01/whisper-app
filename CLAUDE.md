@@ -73,8 +73,15 @@ Fluxo do usuário:
   uma vez pra começar, toca de novo pra parar). Vazio = desativado. Os dois
   compartilham um único flag de "gravação em curso" (`hotkey::SharedRecordingActive`)
   — soltar o push-to-talk sempre encerra a gravação, mesmo se ela tiver
-  começado via hands-free. Trocar qualquer um dos dois em runtime via
-  `hotkey::sync` (chamado por `save_config` quando algum dos campos muda).
+  começado via hands-free.
+- `repaste_hotkey: String` — atalho opcional que recola a última transcrição
+  formatada no app ativo, sem regravar. Vazio = desativado. Lê de
+  `llm::SharedLastTranscript`, que `llm.rs` atualiza a cada ditado
+  bem-sucedido e o `setup()` semeia com a entrada mais recente do histórico
+  no boot (funciona mesmo antes do primeiro ditado da sessão).
+- Os três atalhos (`hotkey`, `hands_free_hotkey`, `repaste_hotkey`) são
+  validados como mutuamente distintos e re-registrados juntos via
+  `hotkey::sync` sempre que `save_config` detecta mudança em qualquer um.
 - `transcription_provider: local|openai_cloud|groq_cloud` — onde
   transcrever. `openai_cloud` e `groq_cloud` compartilham a mesma função
   (`transcribe_cloud` em `transcription.rs`, formato multipart idêntico) —
@@ -185,9 +192,9 @@ em 2026-08-16:
 - Retenção/limite de histórico (ex: "nunca apagar" vs "apagar após N dias")
   — hoje cresce sem limite; aceitável pra uso pessoal mas pode virar setting
   em Avançado se incomodar.
-- **Colar última transcrição** — atalho pra recolar sem regravar. O comando
-  `repaste_text` (adicionado pro histórico) já faz a colagem; falta só um
-  atalho global dedicado que chame ele com o último texto formatado.
+**Colar última transcrição** — implementado (`repaste_hotkey`, opcional).
+Ver `hotkey.rs` (`repaste_handler`) e `llm::SharedLastTranscript`.
+
 - **Seleção de microfone** — hoje usa o device default do SO; escolher
   explicitamente é barato via `cpal::host.input_devices()`.
 - Mute do áudio do sistema durante a gravação (evita capturar vídeo/música

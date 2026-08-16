@@ -201,6 +201,12 @@ pub struct AppConfig {
     #[serde(default)]
     pub hands_free_hotkey: String,
 
+    /// Combinação de atalho pra recolar a última transcrição no app ativo,
+    /// sem precisar regravar. Mesmo formato de accelerator dos outros dois.
+    /// Vazio = desativado.
+    #[serde(default)]
+    pub repaste_hotkey: String,
+
     /// Onde transcrever: local (whisper.cpp) ou nuvem (OpenAI API).
     #[serde(default)]
     pub transcription_provider: TranscriptionProvider,
@@ -280,6 +286,7 @@ impl Default for AppConfig {
             visual_indicator: VisualIndicator::default(),
             hotkey: default_hotkey(),
             hands_free_hotkey: String::new(),
+            repaste_hotkey: String::new(),
             transcription_provider: TranscriptionProvider::default(),
             whisper_model: WhisperModel::default(),
             adapt_prompt_to_active_app: true,
