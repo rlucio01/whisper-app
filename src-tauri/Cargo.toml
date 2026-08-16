@@ -1,0 +1,67 @@
+[package]
+name = "whisper_app"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "whisper_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `tray-icon` habilita o system tray (ícone na bandeja do sistema).
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+# Plugin oficial para atalhos globais (funciona com app em background).
+tauri-plugin-global-shortcut = "2"
+# Plugin oficial para "iniciar com o sistema" (registra no Startup do Windows,
+# LaunchAgent no macOS, .desktop autostart no Linux).
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Captura de áudio cross-platform (WASAPI no Windows, CoreAudio no macOS, ALSA no Linux).
+cpal = "0.15"
+# Escrita e leitura de arquivos WAV.
+hound = "3.5"
+# Ergonomia de erros (`anyhow::Result` + `?` funciona com qualquer erro).
+anyhow = "1"
+# Bindings Rust do whisper.cpp para transcrição local offline.
+# A primeira build compila o whisper.cpp inteiro (~5-10min).
+whisper-rs = "0.16"
+# HTTP client para chamar APIs de LLM. `blocking` evita precisar do runtime
+# tokio (usamos em thread dedicada). `rustls-tls` evita depender de OpenSSL
+# nativo do sistema (mais simples de buildar no Windows).
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "multipart", "stream"] }
+# Simulação de teclado (para disparar Ctrl+V no app ativo). Cross-platform:
+# usa SendInput no Windows, CGEvent no macOS, XTest no Linux (X11).
+enigo = "0.6"
+# Clipboard cross-platform (get/set de texto).
+arboard = "3"
+
+# APIs Win32 (foreground window, process name) — usadas em `active_app.rs`
+# para detectar o app onde o usuário vai colar o texto e adaptar o prompt
+# do LLM. Só compila no Windows.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading",
+] }
+
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

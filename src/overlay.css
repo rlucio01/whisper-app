@@ -1,0 +1,82 @@
+/* Regras globais aplicadas SOMENTE quando a janela está em modo overlay
+   (marcado por `main.tsx` via `document.documentElement.setAttribute(
+   "data-overlay-mode", "")`).
+
+   O `overlay.css` é bundled globalmente pelo Vite, então sem esse escopo as
+   regras vazariam pra janela principal — na prática o `overflow: hidden` do
+   #root quebrava o scroll da tela de configurações. */
+
+html[data-overlay-mode] {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+html[data-overlay-mode],
+html[data-overlay-mode] body,
+html[data-overlay-mode] #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* Componentes visuais do overlay — as classes não colidem com o app
+   principal, então podem viver no escopo global sem prefixo. */
+
+.overlay-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  margin: 8px;
+  background: rgba(20, 20, 20, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 0.9rem;
+  font-weight: 500;
+  height: calc(100% - 16px);
+  box-sizing: border-box;
+}
+
+.overlay-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.overlay-recording .overlay-dot {
+  background: #ef4444;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.9);
+  animation: overlay-pulse 1s ease-in-out infinite;
+}
+
+.overlay-transcribing .overlay-dot,
+.overlay-formatting .overlay-dot {
+  background: #60a5fa;
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.9);
+  animation: overlay-pulse 1s ease-in-out infinite;
+}
+
+.overlay-label {
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+@keyframes overlay-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+}
