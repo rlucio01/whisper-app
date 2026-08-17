@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Settings from "./Settings";
 import History from "./History";
+import { DEFAULT_HOTKEY, displayHotkey } from "./hotkeyFormat";
 import { playBeep, type SoundKind } from "./sound";
 import "./App.css";
 
@@ -24,10 +25,21 @@ function App() {
   const [formattedText, setFormattedText] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [hotkey, setHotkey] = useState(DEFAULT_HOTKEY);
 
   useEffect(() => {
     invoke<string>("get_app_version").then(setAppVersion).catch(() => {});
   }, []);
+
+  // Relê o config sempre que a tela principal volta a ficar visível — cobre
+  // tanto o boot quanto o retorno da tela de Configurações depois de salvar
+  // um atalho novo.
+  useEffect(() => {
+    if (view !== "main") return;
+    invoke<{ hotkey: string }>("get_config")
+      .then((cfg) => setHotkey(cfg.hotkey.trim() || DEFAULT_HOTKEY))
+      .catch(() => {});
+  }, [view]);
 
   useEffect(() => {
     const unlistenFns: UnlistenFn[] = [];
@@ -181,7 +193,8 @@ function App() {
 
       <section className="hint">
         <p>
-          Segure <kbd>F9</kbd>, fale, e solte para transcrever.
+          Segure <kbd>{displayHotkey(hotkey)}</kbd>, fale, e solte para
+          transcrever.
         </p>
         <p className="hint-secondary">
           Fechar esta janela minimiza o app para a bandeja do sistema.

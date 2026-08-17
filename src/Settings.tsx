@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { displayHotkey } from "./hotkeyFormat";
 import { playBeep } from "./sound";
 
 // Tipo espelhando `AppConfig` no Rust (config.rs).
@@ -1028,13 +1029,6 @@ function HotkeyCapture({ value, onChange, placeholder, onClear }: HotkeyCaptureP
       )}
     </div>
   );
-}
-
-/** "Super" é o nome que o backend entende pra tecla Windows, mas o usuário
- *  pensa nela como "Windows" — só troca pra exibição, o valor salvo continua
- *  em "Super". */
-function displayHotkey(value: string): string {
-  return value.replace(/\bSuper\b/g, "Windows");
 }
 
 /** Mapeia o `event.code` de cada tecla modificadora (esquerda/direita) para
