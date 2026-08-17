@@ -26,7 +26,7 @@ mod visual;
 use std::sync::{Arc, Mutex};
 
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
@@ -111,6 +111,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_app_version,
             commands::get_config,
             commands::save_config,
             commands::open_config_folder,
@@ -133,11 +134,19 @@ pub fn run() {
 
 /// Cria o ícone da bandeja com menu de contexto e handlers de clique.
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    // Item de versão: só informativo (enabled=false, não dispara clique) —
+    // ajuda a identificar rapidamente qual build está rodando, já que o
+    // update é manual (ver CLAUDE.md) e é fácil esquecer qual versão foi
+    // reinstalada por último.
+    let version_label = format!("v{}", app.package_info().version);
+    let version = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+
     // MenuItem::with_id — o `id` é como identificamos qual item foi clicado
     // depois, dentro do `on_menu_event`.
     let show = MenuItem::with_id(app, "show", "Mostrar janela", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let menu = Menu::with_items(app, &[&version, &separator, &show, &quit])?;
 
     TrayIconBuilder::with_id("main-tray")
         // Usa o mesmo ícone da janela principal (definido em tauri.conf.json).

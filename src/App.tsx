@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Settings from "./Settings";
 import History from "./History";
@@ -22,6 +23,11 @@ function App() {
   const [rawTranscript, setRawTranscript] = useState<string | null>(null);
   const [formattedText, setFormattedText] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    invoke<string>("get_app_version").then(setAppVersion).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const unlistenFns: UnlistenFn[] = [];
@@ -121,7 +127,10 @@ function App() {
     <main className="container">
       <header className="app-header">
         <div>
-          <h1>Whisper App</h1>
+          <h1>
+            Whisper App
+            {appVersion && <span className="app-version">v{appVersion}</span>}
+          </h1>
           <p className="tagline">Ditado por voz com IA</p>
         </div>
         <div className="app-header-actions">

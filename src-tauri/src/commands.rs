@@ -16,6 +16,13 @@ use crate::hotkey;
 use crate::insert;
 use crate::models::{self, ModelStatus};
 
+/// Retorna a versão do app (de `tauri.conf.json`), pra exibir na UI e
+/// facilitar identificar qual build está rodando.
+#[tauri::command]
+pub fn get_app_version<R: Runtime>(app: AppHandle<R>) -> String {
+    app.package_info().version.to_string()
+}
+
 /// Retorna o config atual (do state em memória, não relê do disco).
 ///
 /// Usado pela tela de settings para popular os campos com os valores salvos.
