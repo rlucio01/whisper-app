@@ -29,7 +29,7 @@ use tauri::{AppHandle, Manager, Runtime};
 const DEFAULT_OPENAI_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_ANTHROPIC_MODEL: &str = "claude-haiku-4-5-20251001";
 const DEFAULT_OPENROUTER_MODEL: &str = "openai/gpt-4o-mini";
-const DEFAULT_GROQ_MODEL: &str = "llama-3.3-70b-versatile";
+const DEFAULT_GROQ_MODEL: &str = "openai/gpt-oss-120b";
 const DEFAULT_GEMINI_MODEL: &str = "gemini-2.0-flash";
 const DEFAULT_XAI_MODEL: &str = "grok-3-mini";
 
@@ -172,7 +172,7 @@ pub struct AppConfig {
     ///   - OpenAI: "gpt-4o-mini", "gpt-4o", "gpt-5", etc.
     ///   - Anthropic: "claude-haiku-4-5-20251001", "claude-sonnet-4-6", etc.
     ///   - OpenRouter: "openai/gpt-4o-mini", "anthropic/claude-haiku-4.5", etc.
-    ///   - Groq: "llama-3.3-70b-versatile", "llama-3.1-8b-instant", etc.
+    ///   - Groq: "openai/gpt-oss-120b", "openai/gpt-oss-20b", etc.
     ///   - Gemini: "gemini-2.0-flash", "gemini-2.5-pro", etc.
     ///   - xAI: "grok-3-mini", "grok-4-latest", etc.
     ///

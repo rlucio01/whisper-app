@@ -93,10 +93,10 @@ const CURATED_MODELS: Record<Provider, string[]> = {
     "meta-llama/llama-3.3-70b-instruct",
   ],
   groq: [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.6-27b",
+    "groq/compound",
   ],
   gemini: [
     "gemini-2.0-flash",
@@ -154,10 +154,22 @@ export default function Settings({ onBack }: SettingsProps) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [autostart, setAutostartState] = useState<boolean | null>(null);
+  // Controla se o campo de texto "modelo personalizado" aparece. Não dá pra
+  // derivar isso só comparando `llm_model` com a lista curada: ao escolher
+  // "Personalizado…" nós semeamos o campo com o modelo default do provider
+  // (que É um valor curado), então a comparação de string sozinha escondia
+  // o campo de novo. Esse state guarda a intenção explícita do usuário.
+  const [customModelMode, setCustomModelMode] = useState(false);
 
   useEffect(() => {
     invoke<AppConfig>("get_config")
-      .then(setConfig)
+      .then((cfg) => {
+        setConfig(cfg);
+        setCustomModelMode(
+          cfg.llm_model.trim() !== "" &&
+            !CURATED_MODELS[cfg.provider].includes(cfg.llm_model),
+        );
+      })
       .catch((e) => setMessage(`Erro ao carregar config: ${e}`));
     invoke<boolean>("is_autostart_enabled")
       .then(setAutostartState)
@@ -185,10 +197,6 @@ export default function Settings({ onBack }: SettingsProps) {
 
   const providerLabel = PROVIDER_LABELS[config.provider];
   const curated = CURATED_MODELS[config.provider];
-  // O modelo é "custom" quando o usuário digitou algo que não bate com nenhum
-  // preset e não é vazio. Vazio = usar o default do provider.
-  const isCustomModel =
-    config.llm_model.trim() !== "" && !curated.includes(config.llm_model);
 
   async function save() {
     if (!config) return;
@@ -226,6 +234,7 @@ export default function Settings({ onBack }: SettingsProps) {
             // Ao trocar de provider, o modelo salvo raramente faz sentido no
             // novo — limpamos pra cair no default do provider escolhido.
             setConfig({ ...config, provider: newProvider, llm_model: "" });
+            setCustomModelMode(false);
           }}
         >
           {(Object.keys(PROVIDER_LABELS) as Provider[]).map((p) => (
@@ -269,15 +278,17 @@ export default function Settings({ onBack }: SettingsProps) {
         <select
           id="model"
           className="text-input"
-          value={isCustomModel ? "__custom" : config.llm_model}
+          value={customModelMode ? "__custom" : config.llm_model}
           onChange={(e) => {
             const v = e.target.value;
             if (v === "__custom") {
               // Ao mudar pra custom, semeia com o default do provider pra o
               // usuário ter algo de onde partir a edição.
+              setCustomModelMode(true);
               setConfig({ ...config, llm_model: DEFAULT_MODEL_OF(config.provider) });
             } else {
               // "" = usar default do backend; qualquer curated fica literal.
+              setCustomModelMode(false);
               setConfig({ ...config, llm_model: v });
             }
           }}
@@ -290,7 +301,7 @@ export default function Settings({ onBack }: SettingsProps) {
           ))}
           <option value="__custom">Personalizado…</option>
         </select>
-        {isCustomModel && (
+        {customModelMode && (
           <input
             type="text"
             className="text-input"
