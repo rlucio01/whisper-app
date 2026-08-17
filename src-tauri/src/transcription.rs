@@ -287,6 +287,13 @@ fn transcribe_wav_local(ctx: &WhisperContext, wav_path: &Path) -> Result<String>
     params.set_print_special(false);
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
+    // whisper.cpp por padrão usa só min(4, núcleos) threads — em CPUs com
+    // mais de 4 núcleos isso deixa a maior parte ociosa. Usamos todos os
+    // núcleos lógicos disponíveis.
+    let n_threads = std::thread::available_parallelism()
+        .map(|n| n.get() as i32)
+        .unwrap_or(4);
+    params.set_n_threads(n_threads);
 
     state
         .full(params, &audio)
