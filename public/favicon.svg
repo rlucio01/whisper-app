@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2b2e37"/>
+      <stop offset="100%" stop-color="#16171c"/>
+    </linearGradient>
+    <linearGradient id="mic" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#d7dbe3"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="210" fill="url(#bg)"/>
+
+  <!-- suporte/base do microfone -->
+  <path d="M 332 487 Q 332 717 512 717 Q 692 717 692 487"
+        fill="none" stroke="#60a5fa" stroke-width="34"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="512" y1="717" x2="512" y2="797"
+        stroke="#60a5fa" stroke-width="34" stroke-linecap="round"/>
+  <line x1="432" y1="797" x2="592" y2="797"
+        stroke="#60a5fa" stroke-width="34" stroke-linecap="round"/>
+
+  <!-- cápsula do microfone -->
+  <rect x="402" y="337" width="220" height="330" rx="110" fill="url(#mic)"/>
+
+  <!-- sparkle: aceno de IA -->
+  <path fill="#60a5fa"
+        d="M700,227 L717,280 L770,297 L717,314 L700,367 L683,314 L630,297 L683,280 Z"/>
+</svg>
