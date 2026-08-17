@@ -37,9 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // Autostart: registra o app no Startup do SO. No Windows escreve em
         // `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` — não precisa
-        // de admin. `LaunchAgent` só afeta macOS. Sem argumentos extra: o app
-        // sobe normal e vai direto pro tray (janela principal fica escondida
-        // até o usuário clicar no ícone).
+        // de admin. `LaunchAgent` só afeta macOS.
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -56,6 +54,7 @@ pub fn run() {
                 eprintln!("[config] falha ao carregar, usando defaults: {:#}", e);
                 config::AppConfig::default()
             });
+            let start_minimized = loaded.start_minimized;
             let shared_config: config::SharedConfig = Arc::new(Mutex::new(loaded));
             app.manage(shared_config.clone());
 
@@ -95,6 +94,14 @@ pub fn run() {
 
             build_tray(app)?;
             hotkey::register(app.handle())?;
+
+            // A janela principal nasce escondida (`"visible": false` no
+            // tauri.conf.json) para não piscar antes de sabermos se o
+            // usuário quer o boot direto na bandeja. Mostramos aqui, a
+            // menos que `start_minimized` esteja ligado.
+            if !start_minimized {
+                show_main_window(app.handle());
+            }
             Ok(())
         })
         // Interceptar o fechamento da janela: em vez de encerrar o app,

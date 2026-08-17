@@ -137,6 +137,23 @@ header .tagline {
   letter-spacing: 0.05em;
 }
 
+.transcript-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.transcript-header .label {
+  margin: 0;
+}
+
+.transcript-header .icon-btn {
+  width: 28px;
+  height: 28px;
+  font-size: 0.95rem;
+}
+
 .error-box code {
   display: block;
   word-break: break-all;

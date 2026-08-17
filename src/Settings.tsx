@@ -39,6 +39,7 @@ interface AppConfig {
   adapt_prompt_to_active_app: boolean;
   sound_feedback: boolean;
   skip_llm_formatting: boolean;
+  start_minimized: boolean;
 }
 
 interface ModelStatus {
@@ -616,6 +617,24 @@ export default function Settings({ onBack }: SettingsProps) {
           O app sobe direto pro tray no login — o atalho fica disponível sem
           você precisar abrir manualmente. Essa opção não passa pelo botão
           Salvar: já vale ao clicar.
+        </p>
+      </section>
+
+      <section className="field">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={config.start_minimized}
+            onChange={(e) =>
+              setConfig({ ...config, start_minimized: e.target.checked })
+            }
+          />
+          <span>Iniciar apenas na bandeja do sistema</span>
+        </label>
+        <p className="field-hint">
+          Ao abrir o app (manualmente ou junto com o Windows), a janela
+          principal fica escondida — só o ícone na bandeja aparece. O atalho
+          de ditado continua funcionando normalmente.
         </p>
       </section>
 

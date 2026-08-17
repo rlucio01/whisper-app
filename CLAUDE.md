@@ -95,6 +95,10 @@ Fluxo do usuário:
   Comando `list_microphones` (usa `audio::list_devices()`) alimenta o
   dropdown em settings.
 - `adapt_prompt_to_active_app: bool` — enviar hint contextual pro LLM.
+- `start_minimized: bool` — se `true`, sobe direto na bandeja sem mostrar a
+  janela principal. A janela nasce com `"visible": false` em
+  `tauri.conf.json` (evita flash) e `lib.rs` decide se mostra logo após o
+  `setup()`, lendo esse campo do config recém-carregado.
 
 Autostart **não** vive no `config.json` — o `tauri-plugin-autostart` já
 persiste no registro do SO (comandos `is_autostart_enabled` e `set_autostart`).
@@ -200,6 +204,14 @@ em 2026-08-16:
   em Avançado se incomodar.
 **Colar última transcrição** — implementado (`repaste_hotkey`, opcional).
 Ver `hotkey.rs` (`repaste_handler`) e `llm::SharedLastTranscript`.
+
+**Botão de copiar o resultado** — implementado. Na tela principal, o card
+"Resultado:" tem um botão ⧉ que copia o texto formatado via
+`navigator.clipboard.writeText` (mesmo padrão do botão de copiar em
+`History.tsx`).
+
+**Iniciar apenas na bandeja** — implementado (`start_minimized` no config,
+opcional). Ver seção "Config persistente" acima.
 
 **Seleção de microfone** — implementado (`microphone` no config, vazio =
 default do SO). Ver `audio::list_devices()` e `commands::list_microphones`.

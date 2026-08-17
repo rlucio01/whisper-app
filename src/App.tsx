@@ -26,6 +26,7 @@ function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [hotkey, setHotkey] = useState(DEFAULT_HOTKEY);
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<string>("get_app_version").then(setAppVersion).catch(() => {});
@@ -119,6 +120,18 @@ function App() {
   const showRawSeparately =
     rawTranscript && formattedText && rawTranscript !== formattedText;
 
+  async function copyResult() {
+    if (!formattedText) return;
+    try {
+      await navigator.clipboard.writeText(formattedText);
+      setCopyMsg("Copiado.");
+    } catch (err) {
+      setCopyMsg(`Falha ao copiar: ${err}`);
+    } finally {
+      setTimeout(() => setCopyMsg(null), 2000);
+    }
+  }
+
   if (view === "settings") {
     return (
       <main className="container">
@@ -172,8 +185,19 @@ function App() {
 
       {formattedText && (
         <section className="transcript">
-          <p className="label">Resultado:</p>
+          <div className="transcript-header">
+            <p className="label">Resultado:</p>
+            <button
+              className="icon-btn"
+              onClick={copyResult}
+              title="Copiar texto"
+              aria-label="Copiar texto"
+            >
+              ⧉
+            </button>
+          </div>
           <p className="transcript-text">{formattedText}</p>
+          {copyMsg && <p className="field-hint">{copyMsg}</p>}
         </section>
       )}
 

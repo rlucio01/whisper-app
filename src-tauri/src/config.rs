@@ -243,6 +243,13 @@ pub struct AppConfig {
     /// Também desativa a tradução automática, já que ela depende do LLM.
     #[serde(default)]
     pub skip_llm_formatting: bool,
+
+    /// Se `true`, o app sobe direto para a bandeja do sistema, sem mostrar a
+    /// janela principal. O hotkey e os serviços de background funcionam
+    /// normalmente — só a janela fica escondida até o usuário clicar no
+    /// ícone do tray. Padrão `false` (mantém o comportamento atual).
+    #[serde(default)]
+    pub start_minimized: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -308,6 +315,7 @@ impl Default for AppConfig {
             adapt_prompt_to_active_app: true,
             sound_feedback: true,
             skip_llm_formatting: false,
+            start_minimized: false,
         }
     }
 }
