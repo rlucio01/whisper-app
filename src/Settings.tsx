@@ -37,6 +37,7 @@ interface AppConfig {
   microphone: string;
   adapt_prompt_to_active_app: boolean;
   sound_feedback: boolean;
+  skip_llm_formatting: boolean;
 }
 
 interface ModelStatus {
@@ -314,6 +315,25 @@ export default function Settings({ onBack }: SettingsProps) {
       </section>
 
       <section className="field">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={config.skip_llm_formatting}
+            onChange={(e) =>
+              setConfig({ ...config, skip_llm_formatting: e.target.checked })
+            }
+          />
+          <span>Não reformatar — colar a transcrição bruta</span>
+        </label>
+        <p className="field-hint">
+          Pula a chamada de LLM e cola exatamente o que foi transcrito, sem
+          corrigir pontuação/hesitações. Mais rápido, mas sem reformatação
+          nem tradução automática. A chave de API acima continua salva —
+          basta desmarcar pra voltar a usar o LLM.
+        </p>
+      </section>
+
+      <section className="field">
         <label className="field-label">Transcrição</label>
         <div className="toggle-group">
           <button
@@ -475,6 +495,12 @@ export default function Settings({ onBack }: SettingsProps) {
           />
           <span>Traduzir automaticamente</span>
         </label>
+        {config.translate.enabled && config.skip_llm_formatting && (
+          <p className="field-hint">
+            Sem efeito enquanto "Não reformatar" (acima) estiver marcado — a
+            tradução depende do LLM.
+          </p>
+        )}
         {config.translate.enabled && (
           <div className="translate-target">
             <label className="field-label" htmlFor="lang">

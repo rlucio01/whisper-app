@@ -235,6 +235,14 @@ pub struct AppConfig {
     /// no tray e a janela principal não está visível.
     #[serde(default = "default_true")]
     pub sound_feedback: bool,
+
+    /// Se `true`, pula a chamada de LLM e cola a transcrição bruta — mesmo
+    /// que uma chave de API válida esteja configurada. Diferente de deixar
+    /// a chave em branco: o usuário mantém a chave salva (e pode religar a
+    /// formatação a qualquer momento) sem precisar apagar/recolar a chave.
+    /// Também desativa a tradução automática, já que ela depende do LLM.
+    #[serde(default)]
+    pub skip_llm_formatting: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -299,6 +307,7 @@ impl Default for AppConfig {
             microphone: String::new(),
             adapt_prompt_to_active_app: true,
             sound_feedback: true,
+            skip_llm_formatting: false,
         }
     }
 }

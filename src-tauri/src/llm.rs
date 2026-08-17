@@ -13,7 +13,8 @@
 //!
 //! ## Comportamento
 //!
-//! - Se a chave do provider ativo estiver **vazia**, este serviço vira
+//! - Se a chave do provider ativo estiver **vazia**, ou se
+//!   `config.skip_llm_formatting` estiver ligado, este serviço vira
 //!   passthrough: emite `format-complete` com o texto original, sem chamar
 //!   API alguma. O MVP funciona sem chave — a transcrição bruta ainda é útil.
 //! - Com chave, envia o texto pro LLM com um prompt system que instrui:
@@ -132,8 +133,9 @@ fn llm_thread_loop<R: Runtime>(
         // passthrough, então sem isso ficaria inacessível depois pro histórico.
         let raw_text_for_history = raw_text.clone();
 
-        // Determina o texto final: LLM formatado, ou passthrough se sem chave.
-        let final_text = if cfg.active_api_key().trim().is_empty() {
+        // Determina o texto final: LLM formatado, ou passthrough se sem chave
+        // ou se o usuário pediu explicitamente pra pular a formatação.
+        let final_text = if cfg.skip_llm_formatting || cfg.active_api_key().trim().is_empty() {
             raw_text
         } else {
             let _ = app.emit("formatting-started", ());
