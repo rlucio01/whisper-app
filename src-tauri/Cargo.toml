@@ -49,12 +49,16 @@ arboard = "3"
 
 # APIs Win32 (foreground window, process name) — usadas em `active_app.rs`
 # para detectar o app onde o usuário vai colar o texto e adaptar o prompt
-# do LLM. Só compila no Windows.
+# do LLM. `Win32_UI_Input_KeyboardAndMouse` e `Win32_System_LibraryLoader`
+# são usadas em `modkey.rs` (low-level keyboard hook para atalhos só de
+# modificador, ex: Ctrl+Windows). Só compila no Windows.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_LibraryLoader",
 ] }
 
 

@@ -17,6 +17,7 @@ mod history;
 mod hotkey;
 mod insert;
 mod llm;
+mod modkey;
 mod models;
 mod sound;
 mod transcription;

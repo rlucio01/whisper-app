@@ -539,8 +539,8 @@ export default function Settings({ onBack }: SettingsProps) {
         <p className="field-hint">
           Clique em <strong>Alterar</strong> e pressione a combinação desejada
           (ex: <code>F9</code>, <code>Ctrl+Shift+Space</code>,{" "}
-          <code>Alt+Space</code>). Só passa a valer depois de{" "}
-          <strong>Salvar</strong>.
+          <code>Alt+Space</code> ou <code>Ctrl+Windows</code>). Só passa a
+          valer depois de <strong>Salvar</strong>.
         </p>
       </section>
 
@@ -936,6 +936,13 @@ function HotkeyCapture({ value, onChange, placeholder, onClear }: HotkeyCaptureP
       console.error("falha ao pausar atalho:", err)
     );
 
+    // Modificadores mantidos pressionados durante esta captura. Usado pra
+    // permitir combinações só de modificador (ex: "Ctrl+Super", que vira
+    // "Ctrl+Windows" na prática) — o Windows não registra esse tipo de
+    // combinação via atalho global comum, mas o backend tem um caminho
+    // separado pra isso (ver `modkey.rs`), então a UI precisa saber montá-la.
+    const heldMods = new Set<string>();
+
     const onKeyDown = (e: KeyboardEvent) => {
       // Bloqueia default e propagação — impede que a tecla vá pra outros
       // handlers da própria UI (ex: um form submit).
@@ -948,18 +955,44 @@ function HotkeyCapture({ value, onChange, placeholder, onClear }: HotkeyCaptureP
         return;
       }
 
+      const modName = MOD_CODE_TO_NAME[e.code];
+      if (modName) {
+        heldMods.add(modName);
+        return; // espera outro modificador ou uma tecla final
+      }
+
+      // Tecla não-modificadora: combina com os modificadores atualmente
+      // pressionados e finaliza imediatamente.
       const parsed = formatHotkey(e);
       if (parsed) {
         onChange(parsed);
         setCapturing(false);
       }
-      // Se retornou null (só modificador), continua esperando a próxima tecla.
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      const modName = MOD_CODE_TO_NAME[e.code];
+      if (!modName) return;
+
+      // Já tínhamos 2+ modificadores simultâneos: a combinação que estava
+      // pressionada até agora (incluindo o que acabou de soltar) é o alvo.
+      if (heldMods.size >= 2) {
+        onChange(formatModifierCombo(heldMods));
+        setCapturing(false);
+        return;
+      }
+
+      // Só esse modificador estava pressionado (sem outro par) — não conta
+      // como combinação sozinha, continua esperando.
+      heldMods.delete(modName);
     };
 
     handlerRef.current = onKeyDown;
     window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
       handlerRef.current = null;
       // Restaura o atalho ao valor salvo no config (o novo só entra em vigor
       // depois do usuário clicar em Salvar).
@@ -978,7 +1011,7 @@ function HotkeyCapture({ value, onChange, placeholder, onClear }: HotkeyCaptureP
         value={
           capturing
             ? "Pressione a combinação… (Esc cancela)"
-            : value || placeholder || ""
+            : displayHotkey(value) || placeholder || ""
         }
       />
       <button
@@ -997,23 +1030,44 @@ function HotkeyCapture({ value, onChange, placeholder, onClear }: HotkeyCaptureP
   );
 }
 
+/** "Super" é o nome que o backend entende pra tecla Windows, mas o usuário
+ *  pensa nela como "Windows" — só troca pra exibição, o valor salvo continua
+ *  em "Super". */
+function displayHotkey(value: string): string {
+  return value.replace(/\bSuper\b/g, "Windows");
+}
+
+/** Mapeia o `event.code` de cada tecla modificadora (esquerda/direita) para
+ *  o nome canônico usado nas strings de atalho. */
+const MOD_CODE_TO_NAME: Record<string, string> = {
+  ControlLeft: "Ctrl",
+  ControlRight: "Ctrl",
+  ShiftLeft: "Shift",
+  ShiftRight: "Shift",
+  AltLeft: "Alt",
+  AltRight: "Alt",
+  MetaLeft: "Super",
+  MetaRight: "Super",
+  OSLeft: "Super",
+  OSRight: "Super",
+};
+
+/** Ordem canônica dos modificadores numa string de atalho — mesma ordem que
+ *  `formatHotkey` já usa (Ctrl, Shift, Alt, Super) e que o backend entende
+ *  tanto pra combinações padrão quanto pras só-de-modificador. */
+const MOD_ORDER = ["Ctrl", "Shift", "Alt", "Super"];
+
+/** Monta a string de uma combinação só de modificadores (ex: "Ctrl+Super"
+ *  para "Ctrl+Windows"), na ordem canônica. */
+function formatModifierCombo(mods: Set<string>): string {
+  return MOD_ORDER.filter((m) => mods.has(m)).join("+");
+}
+
 /** Converte um KeyboardEvent numa string aceita pelo `Shortcut::from_str`.
  *  Retorna null se for só um modificador (ex: só Shift). */
 function formatHotkey(e: KeyboardEvent): string | null {
   // Só-modificador: espera próxima tecla.
-  const modOnly = new Set([
-    "ControlLeft",
-    "ControlRight",
-    "ShiftLeft",
-    "ShiftRight",
-    "AltLeft",
-    "AltRight",
-    "MetaLeft",
-    "MetaRight",
-    "OSLeft",
-    "OSRight",
-  ]);
-  if (modOnly.has(e.code)) return null;
+  if (MOD_CODE_TO_NAME[e.code]) return null;
 
   const key = codeToShortcutKey(e.code);
   if (!key) return null;

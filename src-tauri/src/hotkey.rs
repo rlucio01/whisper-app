@@ -16,8 +16,13 @@
 //! próprio estado interno que pode dessincronizar do outro.
 //!
 //! A string aceita o mesmo formato do accelerator do Tauri/Electron: `"F9"`,
-//! `"CommandOrControl+Shift+K"`, `"Alt+Space"` etc. O parsing é feito pelo
-//! próprio plugin (`Shortcut::from_str`).
+//! `"CommandOrControl+Shift+K"`, `"Alt+Space"` etc. — parseado pelo próprio
+//! plugin (`Shortcut::from_str`) e registrado via `RegisterHotKey` (Windows).
+//! Combinações só de modificador (ex: `"Ctrl+Super"`, exibida como
+//! "Ctrl+Windows" na UI) não passam por `RegisterHotKey` — essa API não
+//! aceita combinações sem tecla final — e vão por um caminho separado, o
+//! low-level keyboard hook em `modkey.rs`. `classify_hotkey()` decide qual
+//! caminho cada atalho configurado usa.
 //!
 //! Fluxo:
 //!   - `register()` roda uma vez no `setup()`, lendo o config atual.
@@ -39,6 +44,7 @@ use crate::audio::AudioService;
 use crate::config::{AppConfig, SharedConfig};
 use crate::insert;
 use crate::llm::SharedLastTranscript;
+use crate::modkey::{self, ModTarget};
 use crate::sound;
 use crate::visual;
 
@@ -55,9 +61,44 @@ type SetupResult = Result<(), Box<dyn std::error::Error>>;
 /// Registra os atalhos configurados no config atual. Chamado uma vez no
 /// `setup()` — depois disso, `sync()` cuida das trocas via settings.
 pub fn register<R: Runtime>(app: &AppHandle<R>) -> SetupResult {
+    // Instala o low-level keyboard hook (Windows) que cuida de combinações
+    // só de modificador (ex: Ctrl+Windows) — RegisterHotKey não aceita esse
+    // tipo de combinação, ver `modkey.rs`. Fica ativo pelo resto da vida do
+    // processo; `sync()` só troca quais combinações ele reconhece.
+    modkey::start();
     let cfg = read_config_snapshot(app);
     sync(app, &cfg)?;
     Ok(())
+}
+
+/// Resultado de classificar uma string de atalho: ou é uma combinação normal
+/// (tem tecla final, registrável via `RegisterHotKey`/plugin), ou é só de
+/// modificadores (precisa do hook em `modkey.rs`).
+enum HotkeyKind {
+    Standard(Shortcut),
+    ModifiersOnly(modkey::ModSet),
+}
+
+/// Classifica uma string de accelerator. Aceita `"F9"`, `"Ctrl+Shift+K"` (via
+/// `Shortcut::from_str`) e, só no Windows, combinações só de modificador tipo
+/// `"Ctrl+Super"` (via `modkey::parse_modifiers_only`). Retorna erro amigável
+/// (`String`) para propagar até a UI.
+fn classify_hotkey(s: &str) -> Result<HotkeyKind, String> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Err("combinação de tecla vazia".to_string());
+    }
+    // Só tenta o caminho de modificadores-só no Windows — nos outros SOs o
+    // hook de `modkey.rs` é um stub, então cai no parser padrão, que rejeita
+    // a combinação com uma mensagem de erro natural.
+    if cfg!(target_os = "windows") {
+        if let Some(mods) = modkey::parse_modifiers_only(trimmed) {
+            return Ok(HotkeyKind::ModifiersOnly(mods));
+        }
+    }
+    Shortcut::from_str(trimmed)
+        .map(HotkeyKind::Standard)
+        .map_err(|e| format!("combinação inválida \"{}\": {}", trimmed, e))
 }
 
 /// Desregistra tudo e re-registra os atalhos configurados (push-to-talk +
@@ -71,17 +112,17 @@ pub fn sync<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<(), Strin
     } else {
         cfg.hotkey.trim().to_string()
     };
-    let ptt_shortcut = parse_hotkey(&ptt_string)?;
+    let ptt_kind = classify_hotkey(&ptt_string)?;
 
     let hf_string = cfg.hands_free_hotkey.trim();
-    let hf_shortcut = parse_optional_distinct(
+    let hf_kind = parse_optional_distinct(
         hf_string,
         "hands-free",
         &[("push-to-talk", &ptt_string)],
     )?;
 
     let rp_string = cfg.repaste_hotkey.trim();
-    let rp_shortcut = parse_optional_distinct(
+    let rp_kind = parse_optional_distinct(
         rp_string,
         "de recolar última transcrição",
         &[("push-to-talk", &ptt_string), ("hands-free", hf_string)],
@@ -91,18 +132,57 @@ pub fn sync<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<(), Strin
     gs.unregister_all()
         .map_err(|e| format!("falha ao desregistrar atalhos anteriores: {}", e))?;
 
-    gs.on_shortcut(ptt_shortcut, handler())
-        .map_err(|e| format!("falha ao registrar atalho push-to-talk: {}", e))?;
+    if let HotkeyKind::Standard(shortcut) = ptt_kind {
+        gs.on_shortcut(shortcut, handler())
+            .map_err(|e| format!("falha ao registrar atalho push-to-talk: {}", e))?;
+    }
 
-    if let Some(shortcut) = hf_shortcut {
-        gs.on_shortcut(shortcut, hands_free_handler())
+    if let Some(HotkeyKind::Standard(shortcut)) = &hf_kind {
+        gs.on_shortcut(*shortcut, hands_free_handler())
             .map_err(|e| format!("falha ao registrar atalho hands-free: {}", e))?;
     }
 
-    if let Some(shortcut) = rp_shortcut {
-        gs.on_shortcut(shortcut, repaste_handler())
+    if let Some(HotkeyKind::Standard(shortcut)) = &rp_kind {
+        gs.on_shortcut(*shortcut, repaste_handler())
             .map_err(|e| format!("falha ao registrar atalho de recolar: {}", e))?;
     }
+
+    // Combinações só de modificador vão pro hook em vez do plugin.
+    let ptt_mods = match ptt_kind {
+        HotkeyKind::ModifiersOnly(mods) => {
+            let app_press = app.clone();
+            let app_release = app.clone();
+            Some(ModTarget {
+                mods,
+                on_press: Arc::new(move || begin_recording(&app_press)),
+                on_release: Some(Arc::new(move || end_recording(&app_release))),
+            })
+        }
+        _ => None,
+    };
+    let hf_mods = match hf_kind {
+        Some(HotkeyKind::ModifiersOnly(mods)) => {
+            let app_press = app.clone();
+            Some(ModTarget {
+                mods,
+                on_press: Arc::new(move || do_hands_free_toggle(&app_press)),
+                on_release: None,
+            })
+        }
+        _ => None,
+    };
+    let rp_mods = match rp_kind {
+        Some(HotkeyKind::ModifiersOnly(mods)) => {
+            let app_press = app.clone();
+            Some(ModTarget {
+                mods,
+                on_press: Arc::new(move || do_repaste(&app_press)),
+                on_release: None,
+            })
+        }
+        _ => None,
+    };
+    modkey::set_targets(ptt_mods, hf_mods, rp_mods);
 
     Ok(())
 }
@@ -115,7 +195,7 @@ fn parse_optional_distinct(
     value: &str,
     label: &str,
     taken: &[(&str, &str)],
-) -> Result<Option<Shortcut>, String> {
+) -> Result<Option<HotkeyKind>, String> {
     if value.is_empty() {
         return Ok(None);
     }
@@ -127,13 +207,15 @@ fn parse_optional_distinct(
             ));
         }
     }
-    Ok(Some(parse_hotkey(value)?))
+    Ok(Some(classify_hotkey(value)?))
 }
 
-/// Pausa temporariamente todos os atalhos globais. Usado pela UI de settings
-/// enquanto está capturando uma nova combinação — sem isso, se o usuário
-/// apertar um atalho já ativo durante a captura, o app reage a ele.
+/// Pausa temporariamente todos os atalhos globais (plugin + hook de
+/// modificadores). Usado pela UI de settings enquanto está capturando uma
+/// nova combinação — sem isso, se o usuário apertar um atalho já ativo
+/// durante a captura, o app reage a ele.
 pub fn pause<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    modkey::clear_targets();
     app.global_shortcut()
         .unregister_all()
         .map_err(|e| format!("falha ao pausar atalhos: {}", e))
@@ -144,17 +226,6 @@ pub fn pause<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 pub fn resume<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let cfg = read_config_snapshot(app);
     sync(app, &cfg)
-}
-
-/// Faz parse de uma string de accelerator. Aceita `"F9"`, `"Ctrl+Shift+K"`, etc.
-/// Retorna erro amigável (`String`) para propagar até a UI.
-pub fn parse_hotkey(s: &str) -> Result<Shortcut, String> {
-    let trimmed = s.trim();
-    if trimmed.is_empty() {
-        return Err("combinação de tecla vazia".to_string());
-    }
-    Shortcut::from_str(trimmed)
-        .map_err(|e| format!("combinação inválida \"{}\": {}", trimmed, e))
 }
 
 /// Snapshot do config atual, ou default se o state não estiver disponível
@@ -182,15 +253,22 @@ fn hands_free_handler<R: Runtime>(
         if event.state() != ShortcutState::Pressed {
             return;
         }
-        let Some(state) = app.try_state::<SharedRecordingActive>() else {
-            return;
-        };
-        let is_active = state.lock().map(|g| *g).unwrap_or(false);
-        if is_active {
-            end_recording(app);
-        } else {
-            begin_recording(app);
-        }
+        do_hands_free_toggle(app);
+    }
+}
+
+/// Lógica do toque hands-free, compartilhada entre o handler do plugin
+/// (combinação com tecla final) e o alvo do hook em `modkey.rs`
+/// (combinação só de modificador).
+fn do_hands_free_toggle<R: Runtime>(app: &AppHandle<R>) {
+    let Some(state) = app.try_state::<SharedRecordingActive>() else {
+        return;
+    };
+    let is_active = state.lock().map(|g| *g).unwrap_or(false);
+    if is_active {
+        end_recording(app);
+    } else {
+        begin_recording(app);
     }
 }
 
@@ -205,20 +283,26 @@ fn repaste_handler<R: Runtime>(
         if event.state() != ShortcutState::Pressed {
             return;
         }
-        let Some(state) = app.try_state::<SharedLastTranscript>() else {
-            return;
-        };
-        let Some(text) = state.lock().ok().and_then(|g| g.clone()) else {
-            return;
-        };
-        match insert::paste_text(&text) {
-            Ok(()) => {
-                let _ = app.emit("text-inserted", ());
-                sound::play(app, sound::Kind::End);
-            }
-            Err(e) => {
-                let _ = app.emit("insert-error", format!("{:#}", e));
-            }
+        do_repaste(app);
+    }
+}
+
+/// Lógica do toque "recolar", compartilhada entre o handler do plugin e o
+/// alvo do hook em `modkey.rs`.
+fn do_repaste<R: Runtime>(app: &AppHandle<R>) {
+    let Some(state) = app.try_state::<SharedLastTranscript>() else {
+        return;
+    };
+    let Some(text) = state.lock().ok().and_then(|g| g.clone()) else {
+        return;
+    };
+    match insert::paste_text(&text) {
+        Ok(()) => {
+            let _ = app.emit("text-inserted", ());
+            sound::play(app, sound::Kind::End);
+        }
+        Err(e) => {
+            let _ = app.emit("insert-error", format!("{:#}", e));
         }
     }
 }
