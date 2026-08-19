@@ -76,6 +76,8 @@ const API_KEY_PLACEHOLDER: Record<Provider, string> = {
   xai: "xai-...",
 };
 
+const GITHUB_REPO_URL = "https://github.com/rlucio01/whisper-app";
+
 const API_KEY_HELP_URL: Record<Provider, string> = {
   openai: "https://platform.openai.com/api-keys",
   anthropic: "https://console.anthropic.com/settings/keys",
@@ -400,7 +402,15 @@ export default function Settings({ onBack, updater }: SettingsProps) {
               O áudio é enviado para a API da OpenAI (modelo{" "}
               <code>whisper-1</code>). Essa chave é a mesma usada se você
               escolher "OpenAI" como provedor de LLM acima. Nada fica no seu
-              disco, mas precisa de internet.
+              disco, mas precisa de internet. Pegue a sua em{" "}
+              <a
+                href={API_KEY_HELP_URL.openai}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {API_KEY_HELP_URL.openai}
+              </a>
+              .
             </p>
           </>
         )}
@@ -775,6 +785,12 @@ function UpdateSection({ updater }: UpdateSectionProps) {
   return (
     <section className="field">
       <label className="field-label">Atualizações</label>
+      <p className="field-hint">
+        Repositório no GitHub:{" "}
+        <a href={GITHUB_REPO_URL} target="_blank" rel="noreferrer">
+          {GITHUB_REPO_URL}
+        </a>
+      </p>
 
       {info.status === "idle" && (
         <p className="field-hint">Nenhuma verificação feita ainda.</p>
