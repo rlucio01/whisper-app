@@ -29,10 +29,15 @@ $repo = "rlucio01/whisper-app"
 # O updater do Windows usa o instalador NSIS (não o MSI) — é o formato que o
 # plugin sabe rodar silenciosamente. `createUpdaterArtifacts: true` faz o
 # `tauri build` gerar o `.sig` ao lado do `.exe` automaticamente.
+#
+# A pasta acumula builds antigas entre uma release e outra (o bundler não
+# limpa sozinho) — filtramos pelo nome exato da versão atual em vez de pegar
+# "o primeiro .sig encontrado", que já pegou um instalador de versão errada
+# uma vez (v0.3.0 stale ao lado do v0.4.0 recém-buildado).
 $nsisDir = "src-tauri\target\release\bundle\nsis"
-$sigFile = Get-ChildItem -Path $nsisDir -Filter "*.exe.sig" -ErrorAction Stop | Select-Object -First 1
+$sigFile = Get-ChildItem -Path $nsisDir -Filter "*_${version}_*.exe.sig" -ErrorAction Stop | Select-Object -First 1
 if (-not $sigFile) {
-    throw "Nenhum .exe.sig encontrado em $nsisDir — rode '.\scripts\dev.ps1 build' primeiro (com a chave do updater configurada)."
+    throw "Nenhum .exe.sig da versao $version encontrado em $nsisDir — rode '.\scripts\dev.ps1 build' primeiro (com a chave do updater configurada)."
 }
 
 $exeName = $sigFile.Name -replace '\.sig$', ''
