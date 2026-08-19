@@ -177,5 +177,20 @@ pub fn clear_history<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 /// novo" em cada entrada do histórico.
 #[tauri::command]
 pub fn repaste_text(text: String) -> Result<(), String> {
-    insert::paste_text(&text).map_err(|e| format!("{:#}", e))
+    insert::paste_text(&text, None).map_err(|e| format!("{:#}", e))
+}
+
+/// Cancela a gravação em curso sem transcrever nem colar nada. Usado pelo
+/// botão ✕ do painel de hover do overlay.
+#[tauri::command]
+pub fn cancel_recording<R: Runtime>(app: AppHandle<R>) {
+    hotkey::cancel_recording(&app);
+}
+
+/// Finaliza a gravação em curso agora, como se o atalho tivesse sido
+/// solto/tocado de novo — segue o pipeline normal (transcrição → LLM →
+/// colar). Usado pelo botão ✓ do painel de hover do overlay.
+#[tauri::command]
+pub fn confirm_recording<R: Runtime>(app: AppHandle<R>) {
+    hotkey::end_recording(&app);
 }

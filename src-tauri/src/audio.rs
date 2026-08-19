@@ -24,7 +24,7 @@
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -37,8 +37,21 @@ use crate::visual;
 /// Comandos que a UI/hotkey envia para a thread de áudio.
 enum Command {
     Start,
+    /// Encerra a gravação normalmente: escreve o WAV e encadeia a transcrição.
     Stop,
+    /// Encerra a gravação descartando tudo — sem WAV, sem transcrição.
+    /// Disparado pelo botão ✕ do overlay.
+    Cancel,
 }
+
+/// Intervalo entre amostras de nível enviadas pro overlay (~30/s — suave o
+/// bastante pra animação da onda sem sobrecarregar o canal de eventos).
+const LEVEL_TICK: Duration = Duration::from_millis(33);
+
+/// Quantos samples recentes usamos pra estimar o nível a cada tick (~50ms a
+/// 48kHz estéreo). Olhar só a cauda do buffer evita segurar o mutex de
+/// samples por muito tempo em gravações longas.
+const LEVEL_WINDOW_SAMPLES: usize = 4800;
 
 /// Handle público para controlar o serviço de áudio.
 /// Guardado como state do Tauri (via `.manage()`) e acessado pelo handler
@@ -72,6 +85,12 @@ impl AudioService {
     pub fn stop(&self) {
         let _ = self.cmd_tx.send(Command::Stop);
     }
+
+    /// Cancela a gravação em curso, descartando o áudio capturado até agora.
+    /// Se não estiver gravando, é ignorado.
+    pub fn cancel(&self) {
+        let _ = self.cmd_tx.send(Command::Cancel);
+    }
 }
 
 /// Estado interno da gravação em curso (só existe entre Start e Stop).
@@ -90,9 +109,13 @@ struct Recording {
 fn audio_thread_loop<R: Runtime>(cmd_rx: mpsc::Receiver<Command>, app: AppHandle<R>) {
     let mut recording: Option<Recording> = None;
 
-    while let Ok(cmd) = cmd_rx.recv() {
-        match cmd {
-            Command::Start => {
+    // `recv_timeout` no lugar de `recv`: além de processar comandos, o tick
+    // do timeout é o que aciona `emit_audio_level` — a onda do overlay
+    // (visual.rs/Overlay.tsx) precisa de amostras periódicas mesmo sem
+    // nenhum comando novo chegando.
+    loop {
+        match cmd_rx.recv_timeout(LEVEL_TICK) {
+            Ok(Command::Start) => {
                 if recording.is_some() {
                     // Ignora Start duplicado (usuário martelou o hotkey).
                     continue;
@@ -111,7 +134,7 @@ fn audio_thread_loop<R: Runtime>(cmd_rx: mpsc::Receiver<Command>, app: AppHandle
                     }
                 }
             }
-            Command::Stop => {
+            Ok(Command::Stop) => {
                 let Some(r) = recording.take() else {
                     // Stop sem Start prévio, ignora.
                     continue;
@@ -133,8 +156,49 @@ fn audio_thread_loop<R: Runtime>(cmd_rx: mpsc::Receiver<Command>, app: AppHandle
                     }
                 }
             }
+            Ok(Command::Cancel) => {
+                // Dropar `recording` para o stream (via Drop de `_stream`) e
+                // descarta os samples acumulados — nada é escrito em disco,
+                // nada é transcrito.
+                if recording.take().is_some() {
+                    let _ = app.emit("recording-cancelled", ());
+                    visual::set(&app, visual::State::Idle);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(r) = &recording {
+                    emit_audio_level(&app, r);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
+}
+
+/// Estima o nível de áudio atual (RMS da cauda recente do buffer) e emite
+/// pro overlay desenhar a onda. Chamado a cada `LEVEL_TICK` enquanto há uma
+/// gravação em curso.
+fn emit_audio_level<R: Runtime>(app: &AppHandle<R>, recording: &Recording) {
+    let Ok(guard) = recording.samples.lock() else {
+        return;
+    };
+    let len = guard.len();
+    let start = len.saturating_sub(LEVEL_WINDOW_SAMPLES);
+    let window = &guard[start..];
+    let rms = if window.is_empty() {
+        0.0
+    } else {
+        let sum_sq: f32 = window.iter().map(|s| s * s).sum();
+        (sum_sq / window.len() as f32).sqrt()
+    };
+    drop(guard);
+
+    // RMS puro fica baixo demais pra fala normal (~0.05-0.2) pra dar uma
+    // onda com boa amplitude visual. Uma raiz quadrada extra funciona como
+    // curva perceptual simples, levantando os valores baixos sem estourar
+    // os picos (ambos ficam em [0, 1]).
+    let level = rms.sqrt().min(1.0);
+    let _ = app.emit("audio-level", level);
 }
 
 /// Abre o microfone escolhido (ou o default do SO, se `device_name` vazio) e

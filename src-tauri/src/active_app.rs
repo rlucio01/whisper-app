@@ -20,6 +20,12 @@ pub struct ActiveApp {
     pub exe_name: String,
     /// Título da janela ativa, ex: `"#geral - Empresa - Slack"`.
     pub window_title: String,
+    /// HWND (Windows) da janela que estava em foco no momento do hotkey.
+    /// Sempre `None` fora do Windows. Usado por `insert::paste_text` para
+    /// restaurar o foco antes de colar — protege contra qualquer coisa
+    /// (ex: um clique nos controles do overlay) que roube o foco durante o
+    /// pipeline de gravação/transcrição/formatação, que leva alguns segundos.
+    pub target_hwnd: Option<isize>,
 }
 
 /// State compartilhado: o hotkey handler escreve, o LlmService lê.
@@ -80,6 +86,7 @@ pub fn detect() -> Option<ActiveApp> {
         return Some(ActiveApp {
             exe_name: String::new(),
             window_title,
+            target_hwnd: Some(hwnd as isize),
         });
     }
 
@@ -101,6 +108,7 @@ pub fn detect() -> Option<ActiveApp> {
     Some(ActiveApp {
         exe_name,
         window_title,
+        target_hwnd: Some(hwnd as isize),
     })
 }
 

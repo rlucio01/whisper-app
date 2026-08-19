@@ -173,6 +173,8 @@ pub fn run() {
             commands::delete_history_entry,
             commands::clear_history,
             commands::repaste_text,
+            commands::cancel_recording,
+            commands::confirm_recording,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o app Tauri");

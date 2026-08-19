@@ -296,7 +296,7 @@ fn do_repaste<R: Runtime>(app: &AppHandle<R>) {
     let Some(text) = state.lock().ok().and_then(|g| g.clone()) else {
         return;
     };
-    match insert::paste_text(&text) {
+    match insert::paste_text(&text, None) {
         Ok(()) => {
             let _ = app.emit("text-inserted", ());
             sound::play(app, sound::Kind::End);
@@ -332,8 +332,10 @@ fn begin_recording<R: Runtime>(app: &AppHandle<R>) {
     app.state::<AudioService>().start();
 }
 
-/// Fim de uma gravação — comum aos dois modos.
-fn end_recording<R: Runtime>(app: &AppHandle<R>) {
+/// Fim de uma gravação — comum aos dois modos. Também usado diretamente pelo
+/// comando `confirm_recording` (botão ✓ do overlay), que finaliza a gravação
+/// em curso na hora, como se o atalho tivesse sido solto/tocado de novo.
+pub(crate) fn end_recording<R: Runtime>(app: &AppHandle<R>) {
     if let Some(state) = app.try_state::<SharedRecordingActive>() {
         if let Ok(mut active) = state.lock() {
             *active = false;
@@ -342,4 +344,17 @@ fn end_recording<R: Runtime>(app: &AppHandle<R>) {
 
     let _ = app.emit("hotkey-released", ());
     app.state::<AudioService>().stop();
+}
+
+/// Cancela a gravação em curso sem transcrever nem colar nada — usado pelo
+/// botão ✕ do overlay. O áudio capturado até agora é descartado
+/// (`AudioService::cancel`, que também esconde o overlay).
+pub(crate) fn cancel_recording<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(state) = app.try_state::<SharedRecordingActive>() {
+        if let Ok(mut active) = state.lock() {
+            *active = false;
+        }
+    }
+
+    app.state::<AudioService>().cancel();
 }

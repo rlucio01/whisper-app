@@ -57,6 +57,72 @@ html[data-overlay-mode] #root {
   animation: overlay-pulse 1s ease-in-out infinite;
 }
 
+/* Estado "recording": onda de áudio (padrão) ou controles (hover) — ver
+   Overlay.tsx. Reaproveita o mesmo `.overlay-bar` pill do estado dot+label,
+   só o conteúdo interno muda. */
+
+.overlay-waveform {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay-wave-bar {
+  flex: 1 1 auto;
+  min-width: 2px;
+  max-width: 4px;
+  border-radius: 2px;
+  background: #ef4444;
+  /* Transição curta suaviza o salto entre amostras de nível (~30/s) sem
+     deixar a onda com aparência de atraso perceptível. */
+  transition: height 60ms linear;
+}
+
+.overlay-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.overlay-timer {
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.85rem;
+}
+
+.overlay-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.1);
+  transition: background-color 120ms ease;
+}
+
+.overlay-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.overlay-btn-cancel:hover {
+  background: rgba(239, 68, 68, 0.35);
+}
+
+.overlay-btn-confirm:hover {
+  background: rgba(34, 197, 94, 0.35);
+}
+
 .overlay-transcribing .overlay-dot,
 .overlay-formatting .overlay-dot {
   background: #60a5fa;

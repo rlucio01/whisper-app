@@ -117,14 +117,20 @@ fn llm_thread_loop<R: Runtime>(
             }
         };
 
-        // Se o usuário tem "adaptar ao app ativo" ligado, pegamos o app que
-        // estava em foco no F9 (capturado por `hotkey.rs`) para enriquecer
-        // o prompt. Se estiver desligado ou sem info, passa `None`.
+        // App que estava em foco no F9 (capturado por `hotkey.rs`). Sempre
+        // lido — o `target_hwnd` dele é usado mais abaixo pra restaurar o
+        // foco antes de colar, independente do hint pro LLM estar ligado.
+        let captured_active_app = app
+            .state::<SharedActiveApp>()
+            .lock()
+            .ok()
+            .and_then(|g| g.clone());
+
+        // Se o usuário tem "adaptar ao app ativo" ligado, passamos o app pra
+        // enriquecer o prompt. Se estiver desligado, passa `None` pro LLM
+        // mesmo tendo a info (ela ainda serve pra restaurar o foco).
         let active_app = if cfg.adapt_prompt_to_active_app {
-            app.state::<SharedActiveApp>()
-                .lock()
-                .ok()
-                .and_then(|g| g.clone())
+            captured_active_app.clone()
         } else {
             None
         };
@@ -200,9 +206,12 @@ fn llm_thread_loop<R: Runtime>(
             }
         }
 
-        // Cola no app ativo. Falha aqui não bloqueia — o usuário ainda vê o
-        // texto na UI e pode copiar manualmente se precisar.
-        let pasted = match insert::paste_text(&final_text) {
+        // Cola no app ativo, restaurando o foco pra janela que estava ativa
+        // no F9 (protege contra qualquer coisa que tenha roubado o foco
+        // durante os segundos de transcrição/formatação). Falha aqui não
+        // bloqueia — o usuário ainda vê o texto na UI e pode copiar manualmente.
+        let target_hwnd = captured_active_app.as_ref().and_then(|a| a.target_hwnd);
+        let pasted = match insert::paste_text(&final_text, target_hwnd) {
             Ok(()) => {
                 let _ = app.emit("text-inserted", ());
                 true
