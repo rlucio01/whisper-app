@@ -26,6 +26,11 @@ tauri-plugin-global-shortcut = "2"
 # Plugin oficial para "iniciar com o sistema" (registra no Startup do Windows,
 # LaunchAgent no macOS, .desktop autostart no Linux).
 tauri-plugin-autostart = "2"
+# Garante uma única instância rodando: se o usuário clicar no ícone/atalho
+# de novo (ou o autostart disparar com o app já de pé), em vez de subir um
+# processo novo (que duplicaria hotkeys, tray icon etc.) só focamos a janela
+# da instância existente.
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Captura de áudio cross-platform (WASAPI no Windows, CoreAudio no macOS, ALSA no Linux).

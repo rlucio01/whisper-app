@@ -28,6 +28,20 @@ Fluxo do usuário:
 ## Decisões tomadas
 
 - **Tauri 2.x** (não 1.x): APIs de plugins e permissões maduras.
+- **`tauri-plugin-single-instance`** registrado como o primeiro plugin do
+  builder: sem ele, cada clique no ícone (ou o autostart disparando com o
+  app já de pé) sobe um processo Tauri novo — hotkey registrado duas vezes,
+  dois ícones na bandeja, e cada processo com seu próprio state em memória
+  (fonte de bugs sutis tipo a UI mostrar um hotkey desatualizado se o
+  processo errado responde ao `get_config`). O callback do plugin só foca a
+  janela da instância existente.
+- **Hook de panic gravando em `crash.log`** (`install_panic_hook` em
+  `lib.rs`, instalado antes de qualquer outra coisa em `run()`): o profile
+  de release usa `panic = "abort"`, então um panic em qualquer thread —
+  inclusive dentro do `setup()`, como os `.expect()` de criação do client
+  HTTP em `llm.rs`/`transcription.rs` — mata o processo inteiro sem deixar
+  rastro nenhum (nem no Event Viewer). Isso explica falhas tipo "o app não
+  abriu depois que o Windows iniciou" sem nenhum log pra investigar.
 - **whisper-rs 0.16** (não 0.14, que tinha bug no tamanho de `whisper_full_params`).
 - **cpal em thread dedicada** com `mpsc::channel`: `cpal::Stream` é `!Send`
   no Windows (WASAPI usa thread-local state), então guarda-lo num state

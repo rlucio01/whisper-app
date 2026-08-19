@@ -31,9 +31,48 @@ use tauri::{
     Manager, WindowEvent,
 };
 
+/// Grava panics em `crash.log` (mesma pasta do `config.json`) antes do
+/// processo morrer. Sem isso, um panic em qualquer thread — incluindo o
+/// `setup()` — é invisível: o binário roda com `panic = "abort"` (ver
+/// Cargo.toml), então o processo inteiro some sem deixar rastro nenhum,
+/// nem no Event Viewer do Windows. Instalado como a primeira coisa em
+/// `run()`, antes de qualquer coisa que possa panicar.
+fn install_panic_hook() {
+    let log_path = std::env::var("APPDATA")
+        .map(|appdata| std::path::PathBuf::from(appdata).join("com.rlucio.whisperapp"));
+    std::panic::set_hook(Box::new(move |info| {
+        let Ok(dir) = &log_path else { return };
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("crash.log"))
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "[{now}] {info}");
+        }
+    }));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_panic_hook();
+
     tauri::Builder::default()
+        // Precisa ser o primeiro plugin registrado. Se já existir uma
+        // instância rodando, o callback dispara nela (em vez de deixar o
+        // processo novo continuar) — usado aqui pra só mostrar a janela
+        // existente, evitando instâncias duplicadas (hotkey registrado
+        // duas vezes, dois ícones na bandeja etc.).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         // Autostart: registra o app no Startup do SO. No Windows escreve em
         // `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` — não precisa
