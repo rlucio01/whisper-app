@@ -32,7 +32,11 @@ html[data-overlay-mode] #root {
   gap: 0.75rem;
   padding: 0.75rem 1.25rem;
   margin: 8px;
-  background: rgba(20, 20, 20, 0.92);
+  /* `--overlay-opacity` e `--overlay-accent` vêm de `overlay.opacity` /
+     `overlay.accent_color` no config, aplicados via inline style no
+     elemento raiz por `Overlay.tsx` — os fallbacks abaixo cobrem o instante
+     antes do primeiro `get_config` resolver. */
+  background: rgba(20, 20, 20, var(--overlay-opacity, 0.92));
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
   backdrop-filter: blur(8px);
@@ -44,6 +48,17 @@ html[data-overlay-mode] #root {
   box-sizing: border-box;
 }
 
+/* Estado "recording": onda de áudio (padrão) ou controles (hover) — ver
+   Overlay.tsx. Reaproveita o mesmo `.overlay-bar` pill do estado dot+label,
+   só o conteúdo interno muda. Padding vertical reduzido em relação ao
+   `.overlay-bar` base pra sobrar mais altura de verdade pra onda — com o
+   padding padrão a onda ficava pequena demais pra ler o volume da voz. */
+
+.overlay-recording {
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+
 .overlay-dot {
   width: 10px;
   height: 10px;
@@ -51,31 +66,26 @@ html[data-overlay-mode] #root {
   flex-shrink: 0;
 }
 
-.overlay-recording .overlay-dot {
-  background: #ef4444;
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.9);
-  animation: overlay-pulse 1s ease-in-out infinite;
-}
-
-/* Estado "recording": onda de áudio (padrão) ou controles (hover) — ver
-   Overlay.tsx. Reaproveita o mesmo `.overlay-bar` pill do estado dot+label,
-   só o conteúdo interno muda. */
-
 .overlay-waveform {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 3px;
   width: 100%;
   height: 100%;
 }
 
 .overlay-wave-bar {
+  /* Sem `max-width`: as 28 barras crescem pra preencher toda a largura do
+     container (`flex-grow: 1` sem teto). Com um teto, ao bater nele
+     sobrava espaço — e como o container centraliza (`justify-content:
+     center`), esse sobra virava um vão vazio simétrico dos dois lados da
+     onda, deixando a pilula bem maior que o conteúdo (mais óbvio ainda em
+     escalas pequenas, onde já sobra pouco espaço de verdade). */
   flex: 1 1 auto;
   min-width: 2px;
-  max-width: 4px;
   border-radius: 2px;
-  background: #ef4444;
+  background: var(--overlay-accent, #ef4444);
   /* Transição curta suaviza o salto entre amostras de nível (~30/s) sem
      deixar a onda com aparência de atraso perceptível. */
   transition: height 60ms linear;

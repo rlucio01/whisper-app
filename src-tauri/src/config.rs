@@ -131,6 +131,67 @@ impl Default for VisualIndicator {
     }
 }
 
+/// Onde a barra flutuante (overlay) aparece na tela.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OverlayPosition {
+    Top,
+    Bottom,
+}
+
+impl Default for OverlayPosition {
+    fn default() -> Self {
+        OverlayPosition::Bottom
+    }
+}
+
+/// Customização visual da barra flutuante. Separado num sub-struct (como
+/// `TranslateConfig`) porque são campos relacionados que a UI de settings
+/// edita juntos numa seção só.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverlayConfig {
+    /// Topo ou fundo da tela.
+    #[serde(default)]
+    pub position: OverlayPosition,
+
+    /// Fator de escala do tamanho da barra (1.0 = tamanho padrão). Aplicado
+    /// redimensionando a janela nativa do overlay — ver `visual::show_overlay`.
+    #[serde(default = "default_overlay_scale")]
+    pub scale: f32,
+
+    /// Opacidade do fundo da barra, de 0.0 (invisível) a 1.0 (sólido).
+    #[serde(default = "default_overlay_opacity")]
+    pub opacity: f32,
+
+    /// Cor de destaque (dot de gravação, barras da onda de áudio, ícones dos
+    /// botões de hover), em formato hex `"#rrggbb"`.
+    #[serde(default = "default_overlay_accent")]
+    pub accent_color: String,
+}
+
+fn default_overlay_scale() -> f32 {
+    1.0
+}
+
+fn default_overlay_opacity() -> f32 {
+    0.92
+}
+
+fn default_overlay_accent() -> String {
+    "#ef4444".to_string()
+}
+
+impl Default for OverlayConfig {
+    fn default() -> Self {
+        Self {
+            position: OverlayPosition::default(),
+            scale: default_overlay_scale(),
+            opacity: default_overlay_opacity(),
+            accent_color: default_overlay_accent(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Qual provider está ativo. Só a chave correspondente é usada.
@@ -187,6 +248,11 @@ pub struct AppConfig {
     /// Que tipo de indicador visual mostrar durante gravação/processamento.
     #[serde(default)]
     pub visual_indicator: VisualIndicator,
+
+    /// Customização visual da barra flutuante (posição, escala, opacidade,
+    /// cor de destaque). Só tem efeito se `visual_indicator` usa floating.
+    #[serde(default)]
+    pub overlay: OverlayConfig,
 
     /// Combinação de atalho global (push-to-talk). Aceita o formato de
     /// accelerator do Tauri/Electron: `"F9"`, `"CommandOrControl+Shift+K"`,
@@ -306,6 +372,7 @@ impl Default for AppConfig {
             llm_model: String::new(),
             translate: TranslateConfig::default(),
             visual_indicator: VisualIndicator::default(),
+            overlay: OverlayConfig::default(),
             hotkey: default_hotkey(),
             hands_free_hotkey: String::new(),
             repaste_hotkey: String::new(),

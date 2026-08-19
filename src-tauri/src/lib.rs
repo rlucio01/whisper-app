@@ -74,6 +74,13 @@ pub fn run() {
             show_main_window(app);
         }))
         .plugin(tauri_plugin_opener::init())
+        // Auto-update: expõe `check()` / `downloadAndInstall()` pro frontend
+        // (ver Settings.tsx e App.tsx). Não sobe thread nem processo próprio —
+        // só faz uma requisição HTTP quando chamado, então não pesa no app
+        // parado no tray.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Reinicia o app depois de instalar a atualização (`relaunch()`).
+        .plugin(tauri_plugin_process::init())
         // Autostart: registra o app no Startup do SO. No Windows escreve em
         // `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` — não precisa
         // de admin. `LaunchAgent` só afeta macOS.

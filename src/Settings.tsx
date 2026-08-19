@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { displayHotkey } from "./hotkeyFormat";
 import { playBeep } from "./sound";
+import type { useUpdater } from "./useUpdater";
 
 // Tipo espelhando `AppConfig` no Rust (config.rs).
 type Provider =
@@ -13,6 +14,7 @@ type Provider =
   | "gemini"
   | "xai";
 type VisualIndicator = "none" | "floating" | "tray" | "both";
+type OverlayPosition = "top" | "bottom";
 type TranscriptionProvider = "local" | "openai_cloud" | "groq_cloud";
 type WhisperModelSlug = "tiny" | "base" | "small" | "medium" | "large_turbo";
 
@@ -30,6 +32,12 @@ interface AppConfig {
     target_language: string;
   };
   visual_indicator: VisualIndicator;
+  overlay: {
+    position: OverlayPosition;
+    scale: number;
+    opacity: number;
+    accent_color: string;
+  };
   hotkey: string;
   hands_free_hotkey: string;
   repaste_hotkey: string;
@@ -150,9 +158,10 @@ function setApiKey(cfg: AppConfig, provider: Provider, value: string): AppConfig
 
 interface SettingsProps {
   onBack: () => void;
+  updater: ReturnType<typeof useUpdater>;
 }
 
-export default function Settings({ onBack }: SettingsProps) {
+export default function Settings({ onBack, updater }: SettingsProps) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -603,6 +612,99 @@ export default function Settings({ onBack }: SettingsProps) {
         </p>
       </section>
 
+      {(config.visual_indicator === "floating" ||
+        config.visual_indicator === "both") && (
+        <section className="field">
+          <label className="field-label">Aparência da barra flutuante</label>
+
+          <div className="overlay-custom-row">
+            <label className="field-label" htmlFor="overlay-position">
+              Posição
+            </label>
+            <select
+              id="overlay-position"
+              className="text-input"
+              value={config.overlay.position}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  overlay: {
+                    ...config.overlay,
+                    position: e.target.value as OverlayPosition,
+                  },
+                })
+              }
+            >
+              <option value="bottom">Fundo da tela</option>
+              <option value="top">Topo da tela</option>
+            </select>
+          </div>
+
+          <div className="overlay-custom-row">
+            <label className="field-label" htmlFor="overlay-scale">
+              Tamanho ({Math.round(config.overlay.scale * 100)}%)
+            </label>
+            <input
+              id="overlay-scale"
+              type="range"
+              min={0.75}
+              max={1.75}
+              step={0.05}
+              value={config.overlay.scale}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  overlay: { ...config.overlay, scale: Number(e.target.value) },
+                })
+              }
+            />
+          </div>
+
+          <div className="overlay-custom-row">
+            <label className="field-label" htmlFor="overlay-opacity">
+              Opacidade ({Math.round(config.overlay.opacity * 100)}%)
+            </label>
+            <input
+              id="overlay-opacity"
+              type="range"
+              min={0.3}
+              max={1}
+              step={0.05}
+              value={config.overlay.opacity}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  overlay: { ...config.overlay, opacity: Number(e.target.value) },
+                })
+              }
+            />
+          </div>
+
+          <div className="overlay-custom-row">
+            <label className="field-label" htmlFor="overlay-accent">
+              Cor de destaque
+            </label>
+            <input
+              id="overlay-accent"
+              type="color"
+              className="overlay-color-input"
+              value={config.overlay.accent_color}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  overlay: { ...config.overlay, accent_color: e.target.value },
+                })
+              }
+            />
+          </div>
+
+          <p className="field-hint">
+            Posição e tamanho valem a partir da próxima gravação; opacidade e
+            cor atualizam a barra na hora, mesmo com ela escondida.
+          </p>
+        </section>
+      )}
+
       <section className="field">
         <label className="checkbox-row">
           <input
@@ -638,6 +740,8 @@ export default function Settings({ onBack }: SettingsProps) {
         </p>
       </section>
 
+      <UpdateSection updater={updater} />
+
       {message && <p className="settings-msg">{message}</p>}
 
       <section className="actions">
@@ -652,6 +756,94 @@ export default function Settings({ onBack }: SettingsProps) {
         </button>
       </section>
     </div>
+  );
+}
+
+// ---------- UpdateSection ----------
+
+interface UpdateSectionProps {
+  updater: ReturnType<typeof useUpdater>;
+}
+
+/** Verificação e instalação de atualizações. O check silencioso já roda no
+ *  boot (App.tsx); aqui só expomos "Verificar agora" e o botão de instalar
+ *  quando há algo disponível, reusando o mesmo state (não dispara um
+ *  segundo check independente). */
+function UpdateSection({ updater }: UpdateSectionProps) {
+  const { info, checkNow, installNow } = updater;
+
+  return (
+    <section className="field">
+      <label className="field-label">Atualizações</label>
+
+      {info.status === "idle" && (
+        <p className="field-hint">Nenhuma verificação feita ainda.</p>
+      )}
+      {info.status === "checking" && (
+        <p className="field-hint">Verificando…</p>
+      )}
+      {info.status === "up_to_date" && (
+        <p className="field-hint">Você já está na versão mais recente.</p>
+      )}
+      {info.status === "error" && (
+        <p className="model-error">Falha ao verificar: {info.error}</p>
+      )}
+      {info.status === "available" && (
+        <div className="model-row model-row-selected">
+          <div className="model-info">
+            <span className="model-name">Versão {info.version} disponível</span>
+            {info.notes && <span className="model-status">{info.notes}</span>}
+          </div>
+          <div className="model-actions">
+            <button
+              type="button"
+              className="btn-primary btn-small"
+              onClick={installNow}
+            >
+              Atualizar e reiniciar
+            </button>
+          </div>
+        </div>
+      )}
+      {info.status === "downloading" && (
+        <div className="model-row model-row-selected">
+          <div className="model-info">
+            <span className="model-name">Baixando atualização…</span>
+            <span className="model-status">
+              {info.total
+                ? `${formatMB(info.downloaded)} / ${formatMB(info.total)}`
+                : "iniciando…"}
+            </span>
+          </div>
+          <div className="model-progress-bar">
+            <div
+              className="model-progress-fill"
+              style={{
+                width: info.total
+                  ? `${Math.min(100, (info.downloaded / info.total) * 100)}%`
+                  : "8%",
+              }}
+            />
+          </div>
+        </div>
+      )}
+      {info.status === "installing" && (
+        <p className="field-hint">Instalando e reiniciando…</p>
+      )}
+
+      {(info.status === "idle" ||
+        info.status === "up_to_date" ||
+        info.status === "error") && (
+        <button
+          type="button"
+          className="btn-secondary btn-small"
+          style={{ marginTop: "0.5rem", alignSelf: "flex-start" }}
+          onClick={() => checkNow()}
+        >
+          Verificar agora
+        </button>
+      )}
+    </section>
   );
 }
 

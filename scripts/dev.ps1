@@ -24,6 +24,12 @@ $CMakePath       = "C:\Program Files\CMake"
 $NinjaPath       = "C:\Users\rafae\AppData\Local\Microsoft\WinGet\Packages\Ninja-build.Ninja_Microsoft.Winget.Source_8wekyb3d8bbwe"
 $CargoBin        = Join-Path $env:USERPROFILE ".cargo\bin"
 
+# Chave privada de assinatura do auto-updater (gerada uma vez com
+# `tauri signer generate`, NUNCA commitada). Fica fora do repo de propósito.
+# Sem ela, `npm run tauri build` falha ao tentar gerar os artefatos do
+# updater (`createUpdaterArtifacts: true` no tauri.conf.json exige assinatura).
+$UpdaterKeyPath  = "C:\Users\rafae\.tauri-keys\whisper_app_updater.key"
+
 # 1. Ativa o ambiente do compilador MSVC (define cl.exe, INCLUDE, LIB etc.).
 Import-Module (Join-Path $VsInstallPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
 Enter-VsDevShell -VsInstallPath $VsInstallPath -DevCmdArguments "-arch=x64 -host_arch=x64" -SkipAutomaticLocation | Out-Null
@@ -52,6 +58,18 @@ Write-Host "==> Rodando: npm run tauri $mode" -ForegroundColor Cyan
 Write-Host ""
 
 if ($mode -eq "build") {
+    if (Test-Path $UpdaterKeyPath) {
+        # `tauri build` só lê a variável com o CONTEÚDO da chave (não o path,
+        # que serve para `tauri signer sign` avulso) — testado empiricamente,
+        # `TAURI_SIGNING_PRIVATE_KEY_PATH` sozinha é ignorada pelo bundler.
+        $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw $UpdaterKeyPath
+        $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+        Write-Host "==> Assinando com a chave do updater ($UpdaterKeyPath)" -ForegroundColor Cyan
+    } else {
+        Write-Host "==> AVISO: chave de assinatura do updater não encontrada em $UpdaterKeyPath" -ForegroundColor Yellow
+        Write-Host "    O build vai falhar (createUpdaterArtifacts exige assinatura) a menos que" -ForegroundColor Yellow
+        Write-Host "    você gere uma nova chave com 'npm run tauri signer generate'." -ForegroundColor Yellow
+    }
     npm run tauri build
 } else {
     npm run tauri dev

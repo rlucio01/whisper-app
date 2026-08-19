@@ -31,6 +31,12 @@ tauri-plugin-autostart = "2"
 # processo novo (que duplicaria hotkeys, tray icon etc.) só focamos a janela
 # da instância existente.
 tauri-plugin-single-instance = "2"
+# Auto-update: checa um manifesto remoto (latest.json), baixa e instala o
+# instalador assinado. Não é um serviço à parte — só código que roda quando
+# chamado (checagem no boot + botão manual), sem custo de RAM em idle.
+tauri-plugin-updater = "2"
+# Usado pra reiniciar o app depois de instalar uma atualização.
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Captura de áudio cross-platform (WASAPI no Windows, CoreAudio no macOS, ALSA no Linux).

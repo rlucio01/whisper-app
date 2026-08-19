@@ -53,6 +53,27 @@ header .tagline {
   font-size: 0.95rem;
 }
 
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.65rem 1rem;
+  background: rgba(96, 165, 250, 0.1);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.update-banner-text {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.update-banner-progress {
+  flex: 1 1 100%;
+}
+
 .status-dot {
   width: 10px;
   height: 10px;
@@ -304,6 +325,33 @@ select.text-input option {
 
 .text-input-small {
   max-width: 100px;
+}
+
+.overlay-custom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.overlay-custom-row .field-label {
+  flex-shrink: 0;
+}
+
+.overlay-custom-row select,
+.overlay-custom-row input[type="range"] {
+  flex: 1 1 auto;
+  max-width: 220px;
+}
+
+.overlay-color-input {
+  width: 48px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
 }
 
 .toggle-group {

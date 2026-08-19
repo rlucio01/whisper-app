@@ -16,15 +16,28 @@
 //! foco (`focus: false` no tauri.conf.json), pra não interferir no app onde
 //! o texto vai ser colado depois.
 
-use tauri::{AppHandle, Manager, PhysicalPosition, Runtime};
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, Runtime};
 
-use crate::config::{SharedConfig, VisualIndicator};
+use crate::config::{OverlayConfig, OverlayPosition, SharedConfig, VisualIndicator};
 
 /// Label da janela flutuante (definido em `tauri.conf.json`).
 const OVERLAY_LABEL: &str = "overlay";
 
 /// Label do tray (definido em `lib.rs::build_tray`).
 const TRAY_LABEL: &str = "main-tray";
+
+/// Tamanho da barra em `scale: 1.0` (mesmos valores do `tauri.conf.json`).
+/// `overlay.scale` multiplica isso pra dar zoom na janela nativa.
+const BASE_WIDTH: f64 = 320.0;
+const BASE_HEIGHT: f64 = 76.0;
+
+/// Faixa de escala aceita — além disso a barra fica ilegível (muito pequena)
+/// ou toma a tela inteira (muito grande) sem necessidade. Já testamos ir até
+/// 25% (2026-08-19): mesmo com o conteúdo escalando proporcionalmente
+/// (`Overlay.tsx` + `LogicalSize` aqui), ficou ilegível demais na prática —
+/// voltamos pra 75% como piso.
+const MIN_SCALE: f32 = 0.75;
+const MAX_SCALE: f32 = 1.75;
 
 /// Estados sinalizados pelo indicador. O texto/cor no overlay é decidido
 /// no lado JS a partir dos eventos que já emitimos (hotkey-pressed, etc.).
@@ -66,13 +79,25 @@ fn current_indicator<R: Runtime>(app: &AppHandle<R>) -> VisualIndicator {
     }
 }
 
+fn current_overlay_config<R: Runtime>(app: &AppHandle<R>) -> OverlayConfig {
+    match app.try_state::<SharedConfig>() {
+        Some(state) => state
+            .lock()
+            .map(|g| g.overlay.clone())
+            .unwrap_or_default(),
+        None => OverlayConfig::default(),
+    }
+}
+
 // ---------- Overlay window ----------
 
 fn show_overlay<R: Runtime>(app: &AppHandle<R>) {
     let Some(window) = app.get_webview_window(OVERLAY_LABEL) else {
         return;
     };
-    position_overlay(&window);
+    let cfg = current_overlay_config(app);
+    apply_scale(&window, cfg.scale);
+    position_overlay(&window, cfg.position);
     let _ = window.show();
 }
 
@@ -82,9 +107,25 @@ fn hide_overlay<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Reposiciona o overlay no centro-horizontal, um pouco acima do fundo da
-/// tela em que o mouse (ou a janela principal) está.
-fn position_overlay<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+/// Redimensiona a janela nativa do overlay conforme `overlay.scale` — é
+/// assim que o "zoom" da barra é aplicado. `Overlay.tsx` renderiza o
+/// conteúdo num box canônico de `BASE_WIDTH x BASE_HEIGHT` **pixels CSS** e
+/// aplica o mesmo `scale` via `transform: scale()`; por isso o resize aqui
+/// TEM que usar `LogicalSize` (pixels CSS/independentes de DPI), não
+/// `PhysicalSize` (pixels de dispositivo) — num monitor com escala do
+/// Windows diferente de 100% os dois divergem, e a janela real fica com um
+/// tamanho CSS diferente do que o transform assume, cortando/desalinhando
+/// o conteúdo.
+fn apply_scale<R: Runtime>(window: &tauri::WebviewWindow<R>, scale: f32) {
+    let scale = scale.clamp(MIN_SCALE, MAX_SCALE) as f64;
+    let width = BASE_WIDTH * scale;
+    let height = BASE_HEIGHT * scale;
+    let _ = window.set_size(LogicalSize::new(width, height));
+}
+
+/// Reposiciona o overlay no centro-horizontal, perto do topo ou do fundo
+/// (conforme `overlay.position`) da tela em que a janela está.
+fn position_overlay<R: Runtime>(window: &tauri::WebviewWindow<R>, position: OverlayPosition) {
     let Ok(Some(monitor)) = window.current_monitor() else {
         return;
     };
@@ -92,9 +133,14 @@ fn position_overlay<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     let mon_pos = monitor.position();
     let win_size = window.outer_size().unwrap_or_default();
 
-    // Centro horizontal, 85% da altura (barra na parte inferior).
+    // Fração da altura do monitor onde fica o CENTRO vertical da barra.
+    let y_fraction = match position {
+        OverlayPosition::Bottom => 0.85,
+        OverlayPosition::Top => 0.12,
+    };
+
     let x = mon_pos.x + (mon_size.width as i32 - win_size.width as i32) / 2;
-    let y = mon_pos.y + (mon_size.height as f64 * 0.85) as i32
+    let y = mon_pos.y + (mon_size.height as f64 * y_fraction) as i32
         - (win_size.height as i32 / 2);
 
     let _ = window.set_position(PhysicalPosition { x, y });

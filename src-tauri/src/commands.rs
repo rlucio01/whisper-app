@@ -6,7 +6,7 @@
 //! Convenção: erros são retornados como `String` (não `anyhow::Error`) porque
 //! só tipos serializáveis atravessam a ponte JSON pra o JS.
 
-use tauri::{AppHandle, Runtime, State};
+use tauri::{AppHandle, Emitter, Runtime, State};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::audio;
@@ -67,10 +67,20 @@ pub fn save_config<R: Runtime>(
     // assim os dois ficam consistentes.
     config::save(&app, &new_config).map_err(|e| format!("{:#}", e))?;
 
+    // Só o necessário pro evento abaixo — evita clonar o `AppConfig` inteiro
+    // (chaves de API incluídas) só pra isso.
+    let overlay_for_event = new_config.overlay.clone();
+
     let mut guard = state
         .lock()
         .map_err(|_| "config mutex envenenado".to_string())?;
     *guard = new_config;
+    drop(guard);
+
+    // A janela do overlay já está carregada (só escondida) desde o boot, e
+    // lê a config uma vez no mount — sem isso, mudar opacidade/cor em
+    // settings só valeria depois de reiniciar o app.
+    let _ = app.emit("config-updated", overlay_for_event);
     Ok(())
 }
 

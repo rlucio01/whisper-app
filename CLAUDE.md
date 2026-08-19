@@ -61,6 +61,29 @@ Fluxo do usuário:
 - **Adaptação por app ativo**: `active_app::detect()` roda no `Pressed` do
   hotkey (janela alvo ainda tem foco), classifica em Chat/Email/Code/etc.
   e o `llm::build_system_prompt` anexa um hint contextual.
+- **Foco restaurado antes de colar**: `active_app::detect()` também guarda o
+  `target_hwnd` da janela em foco no momento do hotkey. `insert::paste_text`
+  recebe esse HWND e, no Windows, chama `SetForegroundWindow` (via
+  `AttachThreadInput`, necessário porque o Windows bloqueia apps em
+  background de roubar foco) logo antes do Ctrl+V — protege contra qualquer
+  coisa que roube o foco durante os segundos de transcrição/formatação,
+  incluindo cliques nos controles do próprio overlay.
+- **Toda janela nova precisa entrar em `capabilities/*.json`**: o Tauri 2
+  nega permissões (inclusive `event.listen`) por padrão pra qualquer janela
+  fora do array `windows` de uma capability — a falha é silenciosa (promise
+  rejeitada sem crash) e não aparece em `cargo check`/`tsc`. A janela
+  `overlay` ficou de fora por um bom tempo sem que isso fosse percebido: o
+  estado inicial da UI (`"Gravando"` com dot vermelho) coincidia
+  visualmente com o que a tela deveria mostrar mesmo sem nenhum evento
+  chegando, então o bug só ficou óbvio quando a onda de áudio e o
+  cronômetro do overlay simplesmente não se moviam. Se uma nova janela for
+  criada em `tauri.conf.json`, adicione o label dela em
+  `capabilities/default.json` (ou crie uma capability dedicada).
+- **`tauri-plugin-updater` + `tauri-plugin-process`** para auto-update: não
+  sobem thread/serviço próprio — só código que roda sob demanda (`check()` /
+  `downloadAndInstall()` chamados do frontend), então não pesam no processo
+  parado no tray. Ver seção "Auto-update" mais abaixo para o fluxo completo
+  (chave de assinatura, `latest.json`, repo público).
 
 ## Config persistente
 
@@ -189,6 +212,8 @@ Frontend escuta:
 - `formatting-started` / `format-complete` / `format-error`
 - `text-inserted` / `insert-error`
 - `model-download-progress` / `-complete` / `-error`
+- `audio-level` (payload `f32` em `[0, 1]`, ~30/s durante a gravação) /
+  `recording-cancelled`
 
 ## Estado atual
 
@@ -229,6 +254,57 @@ opcional). Ver seção "Config persistente" acima.
 
 **Seleção de microfone** — implementado (`microphone` no config, vazio =
 default do SO). Ver `audio::list_devices()` e `commands::list_microphones`.
+
+**Onda de áudio + controles no hover do overlay** — implementado (v0.3.0).
+Durante a gravação, `audio::audio_thread_loop` amostra o RMS da cauda
+recente do buffer a cada ~33ms (`recv_timeout` no lugar de `recv` — o
+timeout é o próprio tick) e emite `audio-level`; `Overlay.tsx` desenha isso
+como uma onda de barras em vez do texto fixo. Passar o mouse por cima troca
+a onda por: cancelar (✕, `commands::cancel_recording` →
+`audio::Command::Cancel`, descarta o áudio sem transcrever), cronômetro, e
+concluir agora (✓, `commands::confirm_recording` → mesma lógica de
+`hotkey::end_recording`, como se o atalho tivesse sido solto). Os estados
+de transcrição/formatação continuam com o dot+label de antes.
+
+**Auto-update** — implementado (v0.4.0+). O app checa uma vez no boot
+(silencioso — falha de rede/repo não mostra nada) e tem um botão "Verificar
+agora" em Configurações; hook compartilhado em `useUpdater.ts` (usado por
+`App.tsx`, que mostra um banner discreto, e `Settings.tsx`, que mostra a
+seção "Atualizações"). Fluxo: `check()` do `@tauri-apps/plugin-updater`
+consulta o endpoint configurado em `tauri.conf.json`
+(`plugins.updater.endpoints`), que aponta pro
+`releases/latest/download/latest.json` do repo GitHub; se a versão for
+maior, `update.downloadAndInstall()` baixa o instalador assinado, valida a
+assinatura contra a chave pública embutida no `tauri.conf.json`, instala
+(modo `passive` — mostra progresso, sem precisar clicar em nada) e
+`relaunch()` (`@tauri-apps/plugin-process`) reinicia o app.
+
+Repo precisou ser tornado **público** pra isso funcionar: GitHub Releases
+de repo privado exige autenticação, que o updater (requisição HTTP anônima)
+não tem como fazer sem embutir um token no binário (inseguro — qualquer um
+extrai do executável). Histórico de commits foi auditado antes da troca
+(buscado por padrões de chave de todos os providers suportados) — nada
+sensível foi exposto.
+
+Chave de assinatura (par minisign, gerada uma vez com
+`tauri signer generate`): a privada fica **fora do repo**, em
+`C:\Users\rafae\.tauri-keys\whisper_app_updater.key` (sem senha) — se
+perdida, updates futuros não podem mais ser assinados e o app precisa ser
+reinstalado manualmente numa versão nova com uma chave nova. A pública vai
+no `tauri.conf.json` (`plugins.updater.pubkey`), pode ficar no repo sem
+problema.
+
+Cada release agora precisa, além do `.msi`/`.exe` de sempre:
+1. `.\scripts\dev.ps1 build` — já seta `TAURI_SIGNING_PRIVATE_KEY` a partir
+   da chave acima antes de buildar (`createUpdaterArtifacts: true` no
+   `tauri.conf.json` faz o bundler gerar um `.sig` ao lado de cada
+   instalador).
+2. `.\scripts\make-latest-json.ps1 -Notes "..."` — lê o `.sig` do NSIS
+   (`bundle/nsis/*.exe.sig`, é o instalador que o updater roda, não o MSI) e
+   gera `latest.json` com versão/assinatura/URL de download.
+3. Upload de `.msi` + `.exe` (NSIS) + `.sig` do NSIS + `latest.json` como
+   assets da release, com a tag no formato `v<version>` (o `latest.json`
+   monta a URL de download assumindo essa convenção).
 
 Restam do roadmap levantado das telas do Amical:
 - Mute do áudio do sistema durante a gravação (evita capturar vídeo/música

@@ -193,11 +193,13 @@ fn emit_audio_level<R: Runtime>(app: &AppHandle<R>, recording: &Recording) {
     };
     drop(guard);
 
-    // RMS puro fica baixo demais pra fala normal (~0.05-0.2) pra dar uma
-    // onda com boa amplitude visual. Uma raiz quadrada extra funciona como
-    // curva perceptual simples, levantando os valores baixos sem estourar
-    // os picos (ambos ficam em [0, 1]).
-    let level = rms.sqrt().min(1.0);
+    // RMS puro de fala normal a um ganho de mic razoável costuma ficar bem
+    // baixo (~0.01-0.05) — uma onda desenhada direto com isso mal se move.
+    // Um ganho fixo antes da raiz quadrada (curva perceptual simples) dá
+    // uma resposta bem mais viva sem estourar os picos (ambos ficam em
+    // [0, 1] — `min(1.0)` satura falas mais altas em vez de cortar feio).
+    const GAIN: f32 = 8.0;
+    let level = (rms * GAIN).sqrt().min(1.0);
     let _ = app.emit("audio-level", level);
 }
 

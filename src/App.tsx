@@ -5,6 +5,7 @@ import Settings from "./Settings";
 import History from "./History";
 import { DEFAULT_HOTKEY, displayHotkey } from "./hotkeyFormat";
 import { playBeep, type SoundKind } from "./sound";
+import { useUpdater } from "./useUpdater";
 import "./App.css";
 
 type Status =
@@ -27,9 +28,18 @@ function App() {
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [hotkey, setHotkey] = useState(DEFAULT_HOTKEY);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const updater = useUpdater();
 
   useEffect(() => {
     invoke<string>("get_app_version").then(setAppVersion).catch(() => {});
+  }, []);
+
+  // Checagem silenciosa de atualização no boot — se houver versão nova, o
+  // banner abaixo do header aparece sozinho; se não houver (ou der erro,
+  // ex: sem internet), nada é mostrado. O botão "Verificar agora" em
+  // Configurações usa o mesmo hook para uma checagem explícita.
+  useEffect(() => {
+    updater.checkNow({ silent: true });
   }, []);
 
   // Relê o config sempre que a tela principal volta a ficar visível — cobre
@@ -135,7 +145,7 @@ function App() {
   if (view === "settings") {
     return (
       <main className="container">
-        <Settings onBack={() => setView("main")} />
+        <Settings onBack={() => setView("main")} updater={updater} />
       </main>
     );
   }
@@ -177,6 +187,53 @@ function App() {
           </button>
         </div>
       </header>
+
+      {(updater.info.status === "available" ||
+        updater.info.status === "downloading" ||
+        updater.info.status === "installing") && (
+        <section className="update-banner">
+          {updater.info.status === "available" && (
+            <>
+              <span className="update-banner-text">
+                Nova versão disponível: v{updater.info.version}
+              </span>
+              <button
+                className="btn-primary btn-small"
+                onClick={updater.installNow}
+              >
+                Atualizar
+              </button>
+            </>
+          )}
+          {updater.info.status === "downloading" && (
+            <>
+              <span className="update-banner-text">
+                Baixando atualização
+                {updater.info.total
+                  ? ` (${Math.round(
+                      (updater.info.downloaded / updater.info.total) * 100,
+                    )}%)`
+                  : "…"}
+              </span>
+              <div className="model-progress-bar update-banner-progress">
+                <div
+                  className="model-progress-fill"
+                  style={{
+                    width: updater.info.total
+                      ? `${Math.min(100, (updater.info.downloaded / updater.info.total) * 100)}%`
+                      : "8%",
+                  }}
+                />
+              </div>
+            </>
+          )}
+          {updater.info.status === "installing" && (
+            <span className="update-banner-text">
+              Instalando e reiniciando…
+            </span>
+          )}
+        </section>
+      )}
 
       <section className={`status status-${status}`}>
         <div className="status-dot" />
