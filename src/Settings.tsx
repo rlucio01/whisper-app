@@ -45,6 +45,28 @@ interface BenchmarkResult {
   message: string;
 }
 
+interface MetricItem {
+  current: number;
+  limit: number;
+  percent: number;
+  unit: string;
+}
+
+interface UsageReport {
+  provider: string;
+  stt_audio_seconds_hour: MetricItem;
+  stt_audio_seconds_day: MetricItem;
+  stt_requests_minute: MetricItem;
+  stt_requests_day: MetricItem;
+  llm_tokens_minute: MetricItem;
+  llm_tokens_day: MetricItem;
+  llm_requests_minute: MetricItem;
+  llm_requests_day: MetricItem;
+  highest_usage_percent: number;
+  is_near_limit: boolean;
+  alert_message?: string;
+}
+
 interface AppConfig {
   provider: Provider;
   openai_api_key: string;
@@ -215,7 +237,14 @@ export type SettingsTab =
   | "transcription"
   | "llm"
   | "overlay"
+  | "usage"
   | "updates";
+
+function getUsageBadgeClass(percent: number): "safe" | "warning" | "danger" {
+  if (percent >= 85) return "danger";
+  if (percent >= 60) return "warning";
+  return "safe";
+}
 
 interface SettingsProps {
   onBack: () => void;
@@ -239,6 +268,9 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
   const [benchmarking, setBenchmarking] = useState(false);
   const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkResult | null>(null);
   const [benchmarkError, setBenchmarkError] = useState<string | null>(null);
+  const [usageProvider, setUsageProvider] = useState<"groq" | "openai">("groq");
+  const [usageReport, setUsageReport] = useState<UsageReport | null>(null);
+  const [loadingUsage, setLoadingUsage] = useState(false);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -262,12 +294,39 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
       .catch((e) => console.error("Falha ao detectar hardware:", e));
   }, []);
 
+  const loadUsage = (provider: string) => {
+    setLoadingUsage(true);
+    invoke<UsageReport>("get_api_usage", { provider })
+      .then(setUsageReport)
+      .catch((e) => console.error("Erro ao carregar métricas de consumo:", e))
+      .finally(() => setLoadingUsage(false));
+  };
+
+  useEffect(() => {
+    if (activeTab === "usage") {
+      loadUsage(usageProvider);
+    }
+  }, [activeTab, usageProvider]);
+
+  async function handleClearUsage() {
+    if (window.confirm("Deseja realmente zerar o histórico de consumo local deste aplicativo?")) {
+      try {
+        await invoke("clear_api_usage");
+        loadUsage(usageProvider);
+      } catch (e) {
+        console.error("Falha ao zerar consumo:", e);
+      }
+    }
+  }
+
   async function handleRunBenchmark() {
     setBenchmarking(true);
     setBenchmarkError(null);
     setBenchmarkResult(null);
     try {
-      const res = await invoke<BenchmarkResult>("run_benchmark");
+      const res = await invoke<BenchmarkResult>("run_benchmark", {
+        device: config?.inference_device || "auto",
+      });
       setBenchmarkResult(res);
     } catch (err: any) {
       setBenchmarkError(String(err));
@@ -370,6 +429,14 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
           onClick={() => setActiveTab("overlay")}
         >
           <span className="tab-icon">🪟</span> Barra Flutuante
+        </button>
+        <button
+          type="button"
+          className={`settings-tab-btn ${activeTab === "usage" ? "active" : ""}`}
+          onClick={() => setActiveTab("usage")}
+        >
+          <span className="tab-icon">📊</span> Consumo & Limites
+          {usageReport?.is_near_limit && <span className="tab-badge-dot" />}
         </button>
         <button
           type="button"
@@ -1106,6 +1173,249 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                 </div>
               </section>
             )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "usage" && (
+        <div className="settings-tab-content">
+          <div className="settings-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <h3 className="card-title" style={{ margin: 0 }}>📊 Consumo & Limites de API</h3>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ fontSize: "0.78rem", padding: "0.3rem 0.65rem" }}
+                  onClick={() => loadUsage(usageProvider)}
+                  disabled={loadingUsage}
+                >
+                  {loadingUsage ? "Atualizando…" : "🔄 Atualizar"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ fontSize: "0.78rem", padding: "0.3rem 0.65rem", color: "#f87171" }}
+                  onClick={handleClearUsage}
+                >
+                  🗑️ Zerar
+                </button>
+              </div>
+            </div>
+
+            <section className="field">
+              <label className="field-label">Provedor para visualização</label>
+              <div className="toggle-group">
+                <button
+                  type="button"
+                  className={`toggle-btn ${usageProvider === "groq" ? "active" : ""}`}
+                  onClick={() => setUsageProvider("groq")}
+                >
+                  Groq (Cloud)
+                </button>
+                <button
+                  type="button"
+                  className={`toggle-btn ${usageProvider === "openai" ? "active" : ""}`}
+                  onClick={() => setUsageProvider("openai")}
+                >
+                  OpenAI (Cloud)
+                </button>
+              </div>
+              <p className="field-hint">
+                Acompanhe o consumo acumulado no aplicativo e a proximidade em relação aos limites de requisições, áudio e tokens.
+              </p>
+            </section>
+
+            {usageReport?.alert_message && (
+              <div className="usage-alert-box" style={{ marginTop: "1rem" }}>
+                <span style={{ fontSize: "1.1rem" }}>⚠️</span>
+                <span>{usageReport.alert_message}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Speech-to-Text Card */}
+          <div className="settings-card">
+            <h3 className="card-title">🎙️ Speech to Text (Transcrição de Áudio)</h3>
+            <p className="field-hint" style={{ marginTop: "-0.25rem", marginBottom: "1.25rem" }}>
+              {usageProvider === "groq"
+                ? "Limites base do plano Groq Free: 7.2k seg/hora (2h), 28.8k seg/dia (8h), 20 RPM e 2.000 RPD."
+                : "Limites de áudio para a API Whisper da OpenAI."}
+            </p>
+
+            <div className="usage-grid">
+              {/* Audio Seconds per Hour */}
+              <div className="usage-meter-card">
+                <div className="usage-meter-header">
+                  <span className="usage-meter-title">Segundos de Áudio / Hora</span>
+                  <span className={`usage-meter-badge ${getUsageBadgeClass(usageReport?.stt_audio_seconds_hour.percent || 0)}`}>
+                    {(usageReport?.stt_audio_seconds_hour.percent || 0).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="usage-progress-bar">
+                  <div
+                    className={`usage-progress-fill ${getUsageBadgeClass(usageReport?.stt_audio_seconds_hour.percent || 0)}`}
+                    style={{ width: `${Math.min(100, Math.max(0, usageReport?.stt_audio_seconds_hour.percent || 0))}%` }}
+                  />
+                </div>
+                <div className="usage-meter-footer">
+                  <span>{(usageReport?.stt_audio_seconds_hour.current || 0).toFixed(0)}s gastos</span>
+                  <span>Limite: {(usageReport?.stt_audio_seconds_hour.limit || 7200).toFixed(0)}s</span>
+                </div>
+              </div>
+
+              {/* Audio Seconds per Day */}
+              <div className="usage-meter-card">
+                <div className="usage-meter-header">
+                  <span className="usage-meter-title">Segundos de Áudio / Dia</span>
+                  <span className={`usage-meter-badge ${getUsageBadgeClass(usageReport?.stt_audio_seconds_day.percent || 0)}`}>
+                    {(usageReport?.stt_audio_seconds_day.percent || 0).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="usage-progress-bar">
+                  <div
+                    className={`usage-progress-fill ${getUsageBadgeClass(usageReport?.stt_audio_seconds_day.percent || 0)}`}
+                    style={{ width: `${Math.min(100, Math.max(0, usageReport?.stt_audio_seconds_day.percent || 0))}%` }}
+                  />
+                </div>
+                <div className="usage-meter-footer">
+                  <span>{(usageReport?.stt_audio_seconds_day.current || 0).toFixed(0)}s gastos</span>
+                  <span>Limite: {(usageReport?.stt_audio_seconds_day.limit || 28800).toFixed(0)}s</span>
+                </div>
+              </div>
+
+              {/* Requests per Minute (RPM) */}
+              <div className="usage-meter-card">
+                <div className="usage-meter-header">
+                  <span className="usage-meter-title">Requests / Minuto (RPM)</span>
+                  <span className={`usage-meter-badge ${getUsageBadgeClass(usageReport?.stt_requests_minute.percent || 0)}`}>
+                    {(usageReport?.stt_requests_minute.percent || 0).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="usage-progress-bar">
+                  <div
+                    className={`usage-progress-fill ${getUsageBadgeClass(usageReport?.stt_requests_minute.percent || 0)}`}
+                    style={{ width: `${Math.min(100, Math.max(0, usageReport?.stt_requests_minute.percent || 0))}%` }}
+                  />
+                </div>
+                <div className="usage-meter-footer">
+                  <span>{usageReport?.stt_requests_minute.current || 0} no último minuto</span>
+                  <span>Limite: {usageReport?.stt_requests_minute.limit || 20} RPM</span>
+                </div>
+              </div>
+
+              {/* Requests per Day (RPD) */}
+              <div className="usage-meter-card">
+                <div className="usage-meter-header">
+                  <span className="usage-meter-title">Requests / Dia (RPD)</span>
+                  <span className={`usage-meter-badge ${getUsageBadgeClass(usageReport?.stt_requests_day.percent || 0)}`}>
+                    {(usageReport?.stt_requests_day.percent || 0).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="usage-progress-bar">
+                  <div
+                    className={`usage-progress-fill ${getUsageBadgeClass(usageReport?.stt_requests_day.percent || 0)}`}
+                    style={{ width: `${Math.min(100, Math.max(0, usageReport?.stt_requests_day.percent || 0))}%` }}
+                  />
+                </div>
+                <div className="usage-meter-footer">
+                  <span>{usageReport?.stt_requests_day.current || 0} reqs hoje</span>
+                  <span>Limite: {usageReport?.stt_requests_day.limit || 2000} RPD</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Chat Completions / LLM Card */}
+          <div className="settings-card">
+            <h3 className="card-title">✨ Chat Completions (Formatação & LLM)</h3>
+            <p className="field-hint" style={{ marginTop: "-0.25rem", marginBottom: "1.25rem" }}>
+              {usageProvider === "groq"
+                ? "Limites base do plano Groq Free: 30 RPM, 1.000 RPD, 30k TPM e 200k TPD."
+                : "Limites de tokens e requisições para a API de chat da OpenAI."}
+            </p>
+
+            <div className="usage-grid">
+              {/* Tokens per Minute (TPM) */}
+              <div className="usage-meter-card">
+                <div className="usage-meter-header">
+                  <span className="usage-meter-title">Tokens / Minuto (TPM)</span>
+                  <span className={`usage-meter-badge ${getUsageBadgeClass(usageReport?.llm_tokens_minute.percent || 0)}`}>
+                    {(usageReport?.llm_tokens_minute.percent || 0).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="usage-progress-bar">
+                  <div
+                    className={`usage-progress-fill ${getUsageBadgeClass(usageReport?.llm_tokens_minute.percent || 0)}`}
+                    style={{ width: `${Math.min(100, Math.max(0, usageReport?.llm_tokens_minute.percent || 0))}%` }}
+                  />
+                </div>
+                <div className="usage-meter-footer">
+                  <span>{usageReport?.llm_tokens_minute.current || 0} tokens</span>
+                  <span>Limite: {usageReport?.llm_tokens_minute.limit || 30000} TPM</span>
+                </div>
+              </div>
+
+              {/* Tokens per Day (TPD) */}
+              <div className="usage-meter-card">
+                <div className="usage-meter-header">
+                  <span className="usage-meter-title">Tokens / Dia (TPD)</span>
+                  <span className={`usage-meter-badge ${getUsageBadgeClass(usageReport?.llm_tokens_day.percent || 0)}`}>
+                    {(usageReport?.llm_tokens_day.percent || 0).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="usage-progress-bar">
+                  <div
+                    className={`usage-progress-fill ${getUsageBadgeClass(usageReport?.llm_tokens_day.percent || 0)}`}
+                    style={{ width: `${Math.min(100, Math.max(0, usageReport?.llm_tokens_day.percent || 0))}%` }}
+                  />
+                </div>
+                <div className="usage-meter-footer">
+                  <span>{usageReport?.llm_tokens_day.current || 0} tokens hoje</span>
+                  <span>Limite: {usageReport?.llm_tokens_day.limit || 200000} TPD</span>
+                </div>
+              </div>
+
+              {/* LLM Requests per Minute (RPM) */}
+              <div className="usage-meter-card">
+                <div className="usage-meter-header">
+                  <span className="usage-meter-title">Requests / Minuto (RPM)</span>
+                  <span className={`usage-meter-badge ${getUsageBadgeClass(usageReport?.llm_requests_minute.percent || 0)}`}>
+                    {(usageReport?.llm_requests_minute.percent || 0).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="usage-progress-bar">
+                  <div
+                    className={`usage-progress-fill ${getUsageBadgeClass(usageReport?.llm_requests_minute.percent || 0)}`}
+                    style={{ width: `${Math.min(100, Math.max(0, usageReport?.llm_requests_minute.percent || 0))}%` }}
+                  />
+                </div>
+                <div className="usage-meter-footer">
+                  <span>{usageReport?.llm_requests_minute.current || 0} no último minuto</span>
+                  <span>Limite: {usageReport?.llm_requests_minute.limit || 30} RPM</span>
+                </div>
+              </div>
+
+              {/* LLM Requests per Day (RPD) */}
+              <div className="usage-meter-card">
+                <div className="usage-meter-header">
+                  <span className="usage-meter-title">Requests / Dia (RPD)</span>
+                  <span className={`usage-meter-badge ${getUsageBadgeClass(usageReport?.llm_requests_day.percent || 0)}`}>
+                    {(usageReport?.llm_requests_day.percent || 0).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="usage-progress-bar">
+                  <div
+                    className={`usage-progress-fill ${getUsageBadgeClass(usageReport?.llm_requests_day.percent || 0)}`}
+                    style={{ width: `${Math.min(100, Math.max(0, usageReport?.llm_requests_day.percent || 0))}%` }}
+                  />
+                </div>
+                <div className="usage-meter-footer">
+                  <span>{usageReport?.llm_requests_day.current || 0} reqs hoje</span>
+                  <span>Limite: {usageReport?.llm_requests_day.limit || 1000} RPD</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

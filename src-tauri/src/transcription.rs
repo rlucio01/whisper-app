@@ -167,6 +167,7 @@ fn transcription_thread_loop<R: Runtime>(
                     TranscriptionProvider::OpenaiCloud => {
                         let _ = app.emit("transcription-status", "enviando_para_cloud");
                         transcribe_cloud(
+                            &app,
                             &client,
                             &wav_path,
                             CloudTranscribeConfig {
@@ -181,6 +182,7 @@ fn transcription_thread_loop<R: Runtime>(
                     TranscriptionProvider::GroqCloud => {
                         let _ = app.emit("transcription-status", "enviando_para_cloud");
                         transcribe_cloud(
+                            &app,
                             &client,
                             &wav_path,
                             CloudTranscribeConfig {
@@ -381,7 +383,8 @@ struct CloudTranscribeConfig<'a> {
     label: &'static str,
 }
 
-fn transcribe_cloud(
+fn transcribe_cloud<R: Runtime>(
+    app: &AppHandle<R>,
     client: &reqwest::blocking::Client,
     wav_path: &Path,
     cfg: CloudTranscribeConfig<'_>,
@@ -401,6 +404,10 @@ fn transcribe_cloud(
     // o que em conexões medianas economiza alguns segundos por transcrição.
     let (send_path, _cleanup) = prepare_cloud_upload(wav_path)?;
 
+    let audio_duration_sec = hound::WavReader::open(&send_path)
+        .map(|r| r.duration() as f32 / r.spec().sample_rate as f32)
+        .unwrap_or(0.0);
+
     // `Form::file` lê o arquivo por streaming, sem carregar tudo em RAM.
     // A extensão `.wav` no filename orienta o parser do provider.
     let mut form = reqwest::blocking::multipart::Form::new()
@@ -418,6 +425,13 @@ fn transcribe_cloud(
         .multipart(form)
         .send()
         .with_context(|| format!("falha ao enviar áudio para a API {}", cfg.label))?;
+
+    let headers = response.headers().clone();
+    if let Some(usage_state) = app.try_state::<crate::usage::SharedUsage>() {
+        if let Ok(mut u) = usage_state.lock() {
+            u.record_stt(cfg.label, audio_duration_sec, Some(&headers));
+        }
+    }
 
     let status = response.status();
     if !status.is_success() {
@@ -584,23 +598,30 @@ pub struct BenchmarkResult {
 }
 
 /// Executa um teste rápido de inferência no modelo local atual para medir o desempenho na máquina.
-pub fn run_local_benchmark<R: Runtime>(app: &AppHandle<R>) -> Result<BenchmarkResult> {
+pub fn run_local_benchmark<R: Runtime>(
+    app: &AppHandle<R>,
+    device_override: Option<&str>,
+) -> Result<BenchmarkResult> {
     let cfg = match app.state::<SharedConfig>().lock() {
         Ok(g) => g.clone(),
         Err(_) => return Err(anyhow!("mutex de config envenenado")),
     };
 
-    let use_gpu = cfg.should_use_gpu();
+    let use_gpu = match device_override {
+        Some("gpu") => true,
+        Some("cpu") => false,
+        _ => cfg.should_use_gpu(),
+    };
     let device_used = if use_gpu { "GPU" } else { "CPU" }.to_string();
     let ctx = load_local_model(app, cfg.whisper_model, use_gpu)?;
 
-    // Sintetiza 1.5s de áudio 16kHz mono (tom de 440Hz suave)
+    // Sintetiza 1.0s de áudio 16kHz mono (tom suave de 440Hz)
     let sample_rate = 16_000;
-    let n_samples = (sample_rate as f32 * 1.5) as usize;
+    let n_samples = sample_rate as usize;
     let mut audio = Vec::with_capacity(n_samples);
     for i in 0..n_samples {
         let t = i as f32 / sample_rate as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.08;
+        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.05;
         audio.push(s);
     }
 
@@ -612,6 +633,11 @@ pub fn run_local_benchmark<R: Runtime>(app: &AppHandle<R>) -> Result<BenchmarkRe
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
     params.set_suppress_blank(true);
+    // Configurações cruciais para o benchmark rodar em <0.5s sem congelar a UI:
+    params.set_temperature(0.0);
+    params.set_temperature_inc(0.0); // Desativa loops de retry de temperatura em áudio sintético
+    params.set_max_tokens(12);
+    params.set_single_segment(true);
     params.set_n_threads(4);
 
     state
@@ -619,7 +645,7 @@ pub fn run_local_benchmark<R: Runtime>(app: &AppHandle<R>) -> Result<BenchmarkRe
         .context("falha durante a execução do benchmark")?;
     let duration = start.elapsed();
     let duration_ms = duration.as_millis() as u64;
-    let audio_duration_sec = 1.5f32;
+    let audio_duration_sec = 1.0f32;
     let duration_secs = duration.as_secs_f32().max(0.001);
     let speedup_factor = audio_duration_sec / duration_secs;
 

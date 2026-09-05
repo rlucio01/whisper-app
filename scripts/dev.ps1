@@ -30,18 +30,25 @@ $CargoBin        = Join-Path $env:USERPROFILE ".cargo\bin"
 # updater (`createUpdaterArtifacts: true` no tauri.conf.json exige assinatura).
 $UpdaterKeyPath  = "C:\Users\rafae\.tauri-keys\whisper_app_updater.key"
 
-# 1. Ativa o ambiente do compilador MSVC (define cl.exe, INCLUDE, LIB etc.).
-Import-Module (Join-Path $VsInstallPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
-Enter-VsDevShell -VsInstallPath $VsInstallPath -DevCmdArguments "-arch=x64 -host_arch=x64" -SkipAutomaticLocation | Out-Null
+# 1. Ativa o ambiente do compilador MSVC apenas se cl.exe ainda não estiver no PATH.
+if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+    Import-Module (Join-Path $VsInstallPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
+    Enter-VsDevShell -VsInstallPath $VsInstallPath -DevCmdArguments "-arch=x64 -host_arch=x64" -SkipAutomaticLocation | Out-Null
 
-# 2. O DevShell seta VSINSTALLDIR, que CMake interpreta como "instance" — e
-#    o generator Ninja não aceita instance. Removemos para não conflitar.
-Remove-Item Env:VSINSTALLDIR -ErrorAction SilentlyContinue
-Remove-Item Env:CMAKE_GENERATOR_INSTANCE -ErrorAction SilentlyContinue
-Remove-Item Env:CMAKE_GENERATOR_PLATFORM -ErrorAction SilentlyContinue
+    # 2. O DevShell seta VSINSTALLDIR, que CMake interpreta como "instance" — e
+    #    o generator Ninja não aceita instance. Removemos para não conflitar.
+    Remove-Item Env:VSINSTALLDIR -ErrorAction SilentlyContinue
+    Remove-Item Env:CMAKE_GENERATOR_INSTANCE -ErrorAction SilentlyContinue
+    Remove-Item Env:CMAKE_GENERATOR_PLATFORM -ErrorAction SilentlyContinue
+}
 
-# 3. Adiciona ao PATH: Cargo, CMake, LLVM (libclang.dll) e Ninja.
-$env:PATH = "$CargoBin;$CMakePath\bin;$LlvmPath\bin;$NinjaPath;$env:PATH"
+# 3. Adiciona ao PATH se ainda não estiverem: Cargo, CMake, LLVM e Ninja.
+$extraPaths = @($CargoBin, "$CMakePath\bin", "$LlvmPath\bin", $NinjaPath)
+foreach ($p in $extraPaths) {
+    if ($env:PATH -notlike "*$p*") {
+        $env:PATH = "$p;$env:PATH"
+    }
+}
 
 # 4. Env vars usadas pelos build scripts do whisper-rs-sys.
 $env:LIBCLANG_PATH = "$LlvmPath\bin"

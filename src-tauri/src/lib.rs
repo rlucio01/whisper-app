@@ -23,6 +23,7 @@ mod models;
 mod sound;
 mod system_audio;
 mod transcription;
+mod usage;
 mod visual;
 
 use std::sync::{Arc, Mutex};
@@ -145,6 +146,14 @@ pub fn run() {
                 Arc::new(Mutex::new(last_transcript_seed));
             app.manage(shared_last_transcript);
 
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let usage_tracker: usage::SharedUsage =
+                Arc::new(Mutex::new(usage::UsageTracker::load_or_new(&app_data_dir)));
+            app.manage(usage_tracker);
+
             // Sobe as threads de background e guarda os handles como state.
             // Ordem importa (dependência entre serviços):
             //   1. LlmService     (final da cadeia)
@@ -204,6 +213,8 @@ pub fn run() {
             commands::set_tray_update_available,
             commands::get_hardware_info,
             commands::run_benchmark,
+            commands::get_api_usage,
+            commands::clear_api_usage,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o app Tauri");

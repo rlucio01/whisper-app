@@ -39,6 +39,9 @@ bem abaixo de apps concorrentes de ditado, que costumam ficar na casa dos
 - **Detecção de GPU & Aceleração de Hardware**: detecção nativa de placas de
   vídeo (NVIDIA, AMD, Intel Arc) no Windows via DXGI, seleção de dispositivo
   (Automático, GPU ou CPU) e ferramenta integrada de teste de desempenho local.
+- **Monitoramento de Consumo & Limites de API**: painel em tempo real para
+  acompanhar requisições por minuto (RPM), requisições por dia (RPD), segundos de
+  áudio por hora/dia e tokens consumidos em APIs como Groq e OpenAI com alertas de proximidade do limite.
 - **Reformatação por LLM** com 6 provedores suportados: OpenAI, Anthropic,
   OpenRouter, Groq, Google Gemini e xAI (Grok). Escolha o que preferir e
   cole sua própria chave de API.

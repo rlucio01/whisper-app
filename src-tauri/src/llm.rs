@@ -147,6 +147,7 @@ fn llm_thread_loop<R: Runtime>(
             let _ = app.emit("formatting-started", ());
             let result = match cfg.provider {
                 LlmProvider::Openai => call_openai_compatible(
+                    &app,
                     &client,
                     &raw_text,
                     &cfg,
@@ -154,6 +155,7 @@ fn llm_thread_loop<R: Runtime>(
                     OpenaiCompatConfig::openai(&cfg.openai_api_key),
                 ),
                 LlmProvider::Openrouter => call_openai_compatible(
+                    &app,
                     &client,
                     &raw_text,
                     &cfg,
@@ -161,6 +163,7 @@ fn llm_thread_loop<R: Runtime>(
                     OpenaiCompatConfig::openrouter(&cfg.openrouter_api_key),
                 ),
                 LlmProvider::Groq => call_openai_compatible(
+                    &app,
                     &client,
                     &raw_text,
                     &cfg,
@@ -168,6 +171,7 @@ fn llm_thread_loop<R: Runtime>(
                     OpenaiCompatConfig::groq(&cfg.groq_api_key),
                 ),
                 LlmProvider::Xai => call_openai_compatible(
+                    &app,
                     &client,
                     &raw_text,
                     &cfg,
@@ -286,7 +290,8 @@ impl<'a> OpenaiCompatConfig<'a> {
     }
 }
 
-fn call_openai_compatible(
+fn call_openai_compatible<R: Runtime>(
+    app: &AppHandle<R>,
     client: &reqwest::blocking::Client,
     raw_text: &str,
     cfg: &AppConfig,
@@ -323,6 +328,7 @@ fn call_openai_compatible(
         .send()
         .with_context(|| format!("falha ao enviar request para a API {}", provider.label))?;
 
+    let headers = response.headers().clone();
     let status = response.status();
     if !status.is_success() {
         let body = response
@@ -339,6 +345,13 @@ fn call_openai_compatible(
     let parsed: OpenaiResponse = response
         .json()
         .with_context(|| format!("resposta da {} não é JSON válido", provider.label))?;
+
+    let total_tokens = parsed.usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
+    if let Some(usage_state) = app.try_state::<crate::usage::SharedUsage>() {
+        if let Ok(mut u) = usage_state.lock() {
+            u.record_llm(provider.label, total_tokens, Some(&headers));
+        }
+    }
 
     let text = parsed
         .choices
@@ -606,6 +619,19 @@ struct OpenaiMessage<'a> {
 #[derive(Deserialize)]
 struct OpenaiResponse {
     choices: Vec<OpenaiChoice>,
+    #[serde(default)]
+    usage: Option<OpenaiUsage>,
+}
+
+#[derive(Deserialize, Default)]
+#[allow(dead_code)]
+struct OpenaiUsage {
+    #[serde(default)]
+    prompt_tokens: u32,
+    #[serde(default)]
+    completion_tokens: u32,
+    #[serde(default)]
+    total_tokens: u32,
 }
 
 #[derive(Deserialize)]

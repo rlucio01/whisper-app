@@ -227,9 +227,38 @@ pub fn get_hardware_info() -> crate::hardware::HardwareReport {
 
 /// Executa um teste rápido de inferência no modelo local atual e retorna métricas de velocidade.
 #[tauri::command]
-pub fn run_benchmark<R: Runtime>(
+pub async fn run_benchmark<R: Runtime>(
     app: AppHandle<R>,
+    device: Option<String>,
 ) -> Result<crate::transcription::BenchmarkResult, String> {
-    crate::transcription::run_local_benchmark(&app).map_err(|e| format!("{:#}", e))
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::transcription::run_local_benchmark(&app, device.as_deref())
+    })
+    .await
+    .map_err(|e| format!("tarefa bloqueada cancelada: {:#}", e))?
+    .map_err(|e| format!("{:#}", e))
 }
+
+/// Retorna o relatório de métricas de consumo e limites para um provedor (ex: "groq" ou "openai").
+#[tauri::command]
+pub fn get_api_usage(
+    state: State<'_, crate::usage::SharedUsage>,
+    provider: Option<String>,
+) -> Result<crate::usage::UsageReport, String> {
+    let guard = state
+        .lock()
+        .map_err(|_| "usage mutex envenenado".to_string())?;
+    let prov = provider.unwrap_or_else(|| "groq".to_string());
+    Ok(guard.get_report(&prov))
+}
+
+/// Zera o histórico de consumo acumulado no app.
+#[tauri::command]
+pub fn clear_api_usage(state: State<'_, crate::usage::SharedUsage>) -> Result<(), String> {
+    let mut guard = state
+        .lock()
+        .map_err(|_| "usage mutex envenenado".to_string())?;
+    guard.clear().map_err(|e| format!("{:#}", e))
+}
+
 
