@@ -18,6 +18,54 @@ if (isOverlay) {
   document.documentElement.setAttribute("data-overlay-mode", "");
 }
 
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("[ErrorBoundary]", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: "2rem", color: "#f87171", fontFamily: "sans-serif" }}>
+          <h2>Ops! Ocorreu um erro na interface:</h2>
+          <pre style={{ background: "#2a2a2a", padding: "1rem", borderRadius: "6px", color: "#fca5a5", overflow: "auto" }}>
+            {this.state.error?.message || String(this.state.error)}
+          </pre>
+          <button
+            onClick={() => window.location.reload()}
+            style={{ marginTop: "1rem", padding: "0.5rem 1rem", background: "#3b82f6", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+          >
+            Recarregar Aplicativo
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>{isOverlay ? <Overlay /> : <App />}</React.StrictMode>,
+  <React.StrictMode>
+    <ErrorBoundary>
+      {isOverlay ? <Overlay /> : <App />}
+    </ErrorBoundary>
+  </React.StrictMode>,
 );

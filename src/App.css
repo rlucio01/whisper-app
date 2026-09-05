@@ -11,12 +11,14 @@ body {
 }
 
 .container {
-  max-width: 640px;
+  max-width: 760px;
+  width: 100%;
   margin: 0 auto;
-  padding: 2rem 1.5rem;
+  padding: 1.5rem 1.25rem 2.5rem;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.25rem;
+  box-sizing: border-box;
 }
 
 header h1 {
@@ -312,45 +314,42 @@ kbd {
 
 .settings-tabs {
   display: flex;
-  gap: 0.35rem;
-  overflow-x: auto;
-  padding: 0.35rem;
-  background: rgba(0, 0, 0, 0.28);
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.4rem;
+  background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
-  scrollbar-width: none;
-}
-
-.settings-tabs::-webkit-scrollbar {
-  display: none;
 }
 
 .settings-tab-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.75rem;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.85rem;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 7px;
-  color: rgba(255, 255, 255, 0.65);
-  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.83rem;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  flex: 1 1 auto;
   transition: all 0.15s ease;
 }
 
 .settings-tab-btn:hover {
   color: rgba(255, 255, 255, 0.95);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .settings-tab-btn.active {
   color: #ffffff;
-  background: rgba(96, 165, 250, 0.2);
-  border-color: rgba(96, 165, 250, 0.4);
-  box-shadow: 0 0 10px rgba(96, 165, 250, 0.15);
+  background: rgba(96, 165, 250, 0.22);
+  border-color: rgba(96, 165, 250, 0.45);
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.18);
 }
 
 .tab-icon {

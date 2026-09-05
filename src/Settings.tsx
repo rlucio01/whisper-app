@@ -203,6 +203,16 @@ export default function Settings({ onBack, updater }: SettingsProps) {
     }
   }
 
+  type SettingsTab =
+    | "audio"
+    | "hotkeys"
+    | "transcription"
+    | "llm"
+    | "overlay"
+    | "updates";
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
+
   if (!config) {
     return (
       <div className="settings">
@@ -227,16 +237,6 @@ export default function Settings({ onBack, updater }: SettingsProps) {
       setSaving(false);
     }
   }
-
-  type SettingsTab =
-    | "audio"
-    | "hotkeys"
-    | "transcription"
-    | "llm"
-    | "overlay"
-    | "updates";
-
-  const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
 
   return (
     <div className="settings">
