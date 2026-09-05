@@ -14,7 +14,7 @@
     <img src="https://img.shields.io/github/v/release/rlucio01/whisper-app?label=vers%C3%A3o" alt="Última versão" />
   </a>
   <img src="https://img.shields.io/badge/plataforma-Windows-0078D6" alt="Plataforma: Windows" />
-  <img src="https://img.shields.io/badge/tamanho%20em%20idle-%3C5MB-brightgreen" alt="Menos de 5MB em idle" />
+  <img src="https://img.shields.io/badge/tamanho%20em%20idle-%3C7MB-brightgreen" alt="Menos de 7MB em idle" />
 </p>
 
 ---
@@ -28,7 +28,7 @@ código...), e o resultado é colado automaticamente onde seu cursor estava —
 sem precisar copiar nada na mão.
 
 Todo o pipeline roda em background com pegada mínima de recursos: o
-processo fica em **menos de 5MB em idle** no gerenciador de tarefas —
+processo fica em **menos de 7MB em idle** no gerenciador de tarefas —
 bem abaixo de apps concorrentes de ditado, que costumam ficar na casa dos
 200MB parados no tray.
 
@@ -108,7 +108,7 @@ Baixe pela UI (Configurações → Transcrição → Local). Ficam em
 | Tiny           | `ggml-tiny-q5_1.bin`               | ~31 MB  | Mais rápido, menos preciso    |
 | Base           | `ggml-base-q5_1.bin`               | ~59 MB  | Bom para testes               |
 | Small (default)| `ggml-small-q5_1.bin`              | ~181 MB | Recomendado para uso diário   |
-| Medium         | `ggml-medium-q5_1.bin`             | ~514 MB | Mais preciso, mais lento      |
+| Medium         | `ggml-medium-q5_0.bin`             | ~514 MB | Mais preciso, mais lento      |
 | Large-v3 Turbo | `ggml-large-v3-turbo-q5_0.bin`     | ~574 MB | Máxima precisão               |
 
 ## Rodando a partir do código-fonte
@@ -158,11 +158,14 @@ src-tauri/src/         — Lógica Rust:
   ├── insert           — clipboard + Ctrl+V via enigo + arboard
   ├── llm              — chamadas multi-provedor com prompt contextual
   ├── models           — download e gerenciamento dos modelos Whisper
+  ├── modkey           — monitoramento de teclas modificadoras globais
+  ├── sound            — feedback sonoro de início/fim de gravação
+  ├── system_audio     — captura/mute de áudio do sistema
   ├── transcription    — whisper.cpp local + APIs cloud (OpenAI/Groq)
-  └── visual           — overlay flutuante + tray colorido
+  └── visual           — overlay flutuante + tray colorido e badge de update
 scripts/dev.ps1        — wrapper que configura ambiente e roda Tauri
 scripts/make-latest-json.ps1 — gera o manifesto consumido pelo auto-updater
-CLAUDE.md              — notas de arquitetura para agentes de IA
+CLAUDE.md              — notas de arquitetura e guia para agentes de IA
 ```
 
 ## Cross-platform

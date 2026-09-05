@@ -79,6 +79,12 @@ Fluxo do usuário:
   cronômetro do overlay simplesmente não se moviam. Se uma nova janela for
   criada em `tauri.conf.json`, adicione o label dela em
   `capabilities/default.json` (ou crie uma capability dedicada).
+- **Compilação do whisper.cpp e flags SIMD portáveis (`GGML_AVX=ON`, `GGML_NATIVE=OFF`, `GGML_AVX512=OFF`, `GGML_AVX2=OFF`, `GGML_FMA=OFF`)**:
+  Definidas em `scripts/dev.ps1` e `src-tauri/.cargo/config.toml`. **NUNCA remova ou altere essas variáveis sem entender o seguinte contexto**:
+  1. A máquina de compilação do desenvolvedor possui um AMD Ryzen 7 7700X (Zen 4) com instruções ultra-recentes **AVX-512**.
+  2. Se `GGML_NATIVE=ON` ou se `GGML_AVX512` for compilado, o binário conterá instruções AVX-512, resultando em crash fatal instantâneo (`0xc000001d / STATUS_ILLEGAL_INSTRUCTION` no Event Viewer) na máquina de 98% dos usuários normais (Intel Core e AMDs sem AVX-512).
+  3. Se o AVX for totalmente desativado (`GGML_AVX=OFF`), o `whisper.cpp` cai em emulação matemática escalar em software (sem vetorização por hardware), fazendo uma transcrição demorar minutos em vez de 1 segundo ("congelando" em *Transcrevendo...*).
+  4. Manter `GGML_AVX=ON` com `GGML_AVX512=OFF` e `GGML_AVX2=OFF` ativa SIMD 256-bit AVX 1.0 (presente em 100% dos processadores Intel/AMD modernos desde 2011), entregando **alta velocidade (~1s)** com **estabilidade universal** em qualquer computador.
 - **`tauri-plugin-updater` + `tauri-plugin-process`** para auto-update: não
   sobem thread/serviço próprio — só código que roda sob demanda (`check()` /
   `downloadAndInstall()` chamados do frontend), então não pesam no processo
@@ -191,11 +197,13 @@ Baixe pela UI (Configurações → Transcrição → Local). Localização:
 | `tiny` | `ggml-tiny-q5_1.bin` | ~31 MB | Mais rápido, menos preciso |
 | `base` | `ggml-base-q5_1.bin` | ~59 MB | Testes |
 | `small` | `ggml-small-q5_1.bin` | ~181 MB | **Default**, uso diário |
-| `medium` | `ggml-medium-q5_1.bin` | ~514 MB | Mais preciso, mais lento |
+| `medium` | `ggml-medium-q5_0.bin` | ~514 MB | Mais preciso, mais lento |
 | `large_turbo` | `ggml-large-v3-turbo-q5_0.bin` | ~574 MB | Máxima precisão |
 
 Download com progresso via `models::spawn_download` — escreve em `.part` e
-renomeia atomicamente. Eventos emitidos:
+renomeia atomicamente. URLs de download usam espelho resiliente
+(`hf-mirror.com` prioritário com fallback para `huggingface.co`) para contornar
+bloqueios de firewall corporativo. Eventos emitidos:
 `model-download-progress` / `-complete` / `-error`.
 
 Modos cloud alternativos: OpenAI Whisper API (`whisper-1`) ou Groq
@@ -303,12 +311,22 @@ Cada release agora precisa, além do `.msi`/`.exe` de sempre:
    (`bundle/nsis/*.exe.sig`, é o instalador que o updater roda, não o MSI) e
    gera `latest.json` com versão/assinatura/URL de download.
 3. Upload de `.msi` + `.exe` (NSIS) + `.sig` do NSIS + `latest.json` como
-   assets da release, com a tag no formato `v<version>` (o `latest.json`
-   monta a URL de download assumindo essa convenção).
+   assets da release, com a tag no formato `v<version>`.
+4. **Convenção de título de release**: O título da release no GitHub **DEVE** seguir
+   estritamente o padrão `whisper_app v<versão>` (exemplo: `whisper_app v0.4.6`).
+   Nunca adicione sufixos ou descrições no título — use o campo de notas (`--notes`)
+   para detalhar as melhorias e correções da versão.
+
+**Mute do áudio do sistema** — implementado (`mute_system_audio` no config).
+Módulo `system_audio.rs` pausa/muta o áudio de mídia do sistema operacional
+durante a gravação e restaura ao término.
+
+**Indicador de atualização no System Tray** — implementado (v0.4.4+).
+Quando uma versão mais recente está disponível, o app renderiza dinamicamente
+um badge com ponto colorido no ícone da bandeja, atualiza o tooltip e destaca
+o item "Atualização disponível" no topo do menu de contexto.
 
 Restam do roadmap levantado das telas do Amical:
-- Mute do áudio do sistema durante a gravação (evita capturar vídeo/música
-  tocando no fundo) — menor prioridade.
 - Widget sempre visível (não só durante o pipeline) — menor prioridade.
 - Descartado por ora: telemetria, update channel, machine ID (infra de
   produto SaaS, não cabe num app pessoal), "self correction" via IA
