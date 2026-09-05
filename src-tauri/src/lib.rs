@@ -25,6 +25,7 @@ mod system_audio;
 mod transcription;
 mod usage;
 mod visual;
+mod gpu_runtime;
 
 use std::sync::{Arc, Mutex};
 
@@ -215,6 +216,9 @@ pub fn run() {
             commands::run_benchmark,
             commands::get_api_usage,
             commands::clear_api_usage,
+            commands::get_gpu_runtime_status,
+            commands::download_gpu_runtime,
+            commands::delete_gpu_runtime,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o app Tauri");

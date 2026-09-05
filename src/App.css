@@ -869,6 +869,53 @@ select.text-input option {
   border-color: rgba(245, 158, 11, 0.25);
 }
 
+.gpu-runtime-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem 1rem;
+  background: rgba(16, 185, 129, 0.05);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 8px;
+  margin-bottom: 1.15rem;
+  transition: all 0.2s ease;
+}
+
+.gpu-runtime-card.not-installed {
+  background: rgba(59, 130, 246, 0.05);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+.gpu-runtime-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.gpu-runtime-title {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.gpu-runtime-desc {
+  font-size: 0.77rem;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.45;
+}
+
+.gpu-runtime-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.25rem;
+}
+
 .hardware-icon {
   font-size: 1.35rem;
   flex-shrink: 0;

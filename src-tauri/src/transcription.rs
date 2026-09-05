@@ -255,6 +255,22 @@ fn transcribe_local<R: Runtime>(
     language: &str,
     loaded: &mut Option<LoadedModel>,
 ) -> Result<String> {
+    // Se o modo GPU estiver ativo e o runtime CUDA estiver instalado no disco,
+    // executa diretamente via engine nativa CUDA (whisper-cli com cuBLAS)
+    if use_gpu && crate::gpu_runtime::is_cuda_runtime_installed(app) {
+        if let Ok(model_path) = models::file_path(app, wanted) {
+            if model_path.exists() {
+                let _ = app.emit("transcription-status", "transcrevendo");
+                match crate::gpu_runtime::transcribe_via_gpu_engine(app, &model_path, wav_path, language) {
+                    Ok(text) => return Ok(text),
+                    Err(e) => {
+                        eprintln!("Aviso: Falha no engine GPU, caindo para CPU: {:#}", e);
+                    }
+                }
+            }
+        }
+    }
+
     ensure_model_loaded(app, wanted, use_gpu, loaded, /*emit_status=*/ true)?;
 
     let ctx = &loaded
@@ -612,8 +628,45 @@ pub fn run_local_benchmark<R: Runtime>(
         Some("cpu") => false,
         _ => cfg.should_use_gpu(),
     };
-    let device_used = if use_gpu { "GPU" } else { "CPU" }.to_string();
-    let ctx = load_local_model(app, cfg.whisper_model, use_gpu)?;
+
+    let model_path = models::file_path(app, cfg.whisper_model)?;
+    if !model_path.exists() {
+        return Err(anyhow!(
+            "Modelo \"{}\" ainda não foi baixado.\n\
+             Vá em Configurações → Transcrição e baixe o modelo antes de testar.",
+            cfg.whisper_model.meta().display_name
+        ));
+    }
+
+    if use_gpu {
+        if !crate::gpu_runtime::is_cuda_runtime_installed(app) {
+            return Err(anyhow!(
+                "Aceleração por GPU selecionada, mas o Módulo NVIDIA CUDA ainda não foi baixado.\n\
+                 Clique no botão \"Baixar Módulo NVIDIA CUDA\" acima para instalar o suporte à GPU."
+            ));
+        }
+
+        let (duration_ms, speedup_factor) =
+            crate::gpu_runtime::run_gpu_benchmark(app, &model_path)?;
+        let device_used = "GPU (CUDA)".to_string();
+        let message = format!(
+            "Inferência concluída em {}ms ({:.1}x tempo real) via GPU NVIDIA CUDA.",
+            duration_ms, speedup_factor
+        );
+
+        return Ok(BenchmarkResult {
+            duration_ms,
+            audio_duration_sec: 1.0,
+            speedup_factor,
+            model: cfg.whisper_model.meta().display_name.to_string(),
+            device_used,
+            message,
+        });
+    }
+
+    // Execução via CPU (AVX)
+    let device_used = "CPU".to_string();
+    let ctx = load_local_model(app, cfg.whisper_model, false)?;
 
     // Sintetiza 1.0s de áudio 16kHz mono (tom suave de 440Hz)
     let sample_rate = 16_000;
@@ -650,8 +703,8 @@ pub fn run_local_benchmark<R: Runtime>(
     let speedup_factor = audio_duration_sec / duration_secs;
 
     let message = format!(
-        "Inferência concluída em {}ms ({:.1}x tempo real) via {}.",
-        duration_ms, speedup_factor, device_used
+        "Inferência concluída em {}ms ({:.1}x tempo real) via CPU.",
+        duration_ms, speedup_factor
     );
 
     Ok(BenchmarkResult {

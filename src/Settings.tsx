@@ -45,6 +45,19 @@ interface BenchmarkResult {
   message: string;
 }
 
+interface GpuRuntimeStatus {
+  is_nvidia_detected: boolean;
+  installed: boolean;
+  is_downloading: boolean;
+  size_mb: number;
+  cli_path: string | null;
+}
+
+interface GpuRuntimeProgress {
+  downloaded: number;
+  total: number;
+}
+
 interface MetricItem {
   current: number;
   limit: number;
@@ -271,6 +284,15 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
   const [usageProvider, setUsageProvider] = useState<"groq" | "openai">("groq");
   const [usageReport, setUsageReport] = useState<UsageReport | null>(null);
   const [loadingUsage, setLoadingUsage] = useState(false);
+  const [gpuStatus, setGpuStatus] = useState<GpuRuntimeStatus | null>(null);
+  const [gpuProgress, setGpuProgress] = useState<GpuRuntimeProgress | null>(null);
+  const [gpuError, setGpuError] = useState<string | null>(null);
+
+  const refreshGpuStatus = () => {
+    invoke<GpuRuntimeStatus>("get_gpu_runtime_status")
+      .then(setGpuStatus)
+      .catch((e) => console.error("Falha ao obter status GPU:", e));
+  };
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -292,7 +314,50 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
     invoke<HardwareReport>("get_hardware_info")
       .then(setHardware)
       .catch((e) => console.error("Falha ao detectar hardware:", e));
+
+    refreshGpuStatus();
+
+    const unlistens: UnlistenFn[] = [];
+    const track = (p: Promise<UnlistenFn>) => p.then((fn) => unlistens.push(fn));
+
+    track(
+      listen<GpuRuntimeProgress>("gpu-runtime-download-progress", (e) => {
+        setGpuProgress(e.payload);
+      })
+    );
+    track(
+      listen<void>("gpu-runtime-download-complete", () => {
+        setGpuProgress(null);
+        setGpuError(null);
+        refreshGpuStatus();
+      })
+    );
+    track(
+      listen<{ error: string }>("gpu-runtime-download-error", (e) => {
+        setGpuProgress(null);
+        setGpuError(e.payload.error);
+        refreshGpuStatus();
+      })
+    );
+
+    return () => unlistens.forEach((fn) => fn());
   }, []);
+
+  const handleDownloadGpu = () => {
+    setGpuError(null);
+    invoke("download_gpu_runtime").catch((err) => setGpuError(String(err)));
+  };
+
+  const handleDeleteGpu = async () => {
+    if (window.confirm("Deseja desinstalar o módulo NVIDIA CUDA para liberar espaço no disco?")) {
+      try {
+        await invoke("delete_gpu_runtime");
+        refreshGpuStatus();
+      } catch (err) {
+        alert(`Falha ao apagar módulo GPU: ${err}`);
+      }
+    }
+  };
 
   const loadUsage = (provider: string) => {
     setLoadingUsage(true);
@@ -714,6 +779,64 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   </div>
                 )}
 
+                {gpuStatus?.is_nvidia_detected && (
+                  <div className={`gpu-runtime-card ${!gpuStatus.installed ? "not-installed" : ""}`}>
+                    <div className="gpu-runtime-header">
+                      <div className="gpu-runtime-title">
+                        {gpuStatus.installed ? "🎮 Módulo NVIDIA CUDA 12 Instalado" : "⚡ Aceleração por GPU NVIDIA Disponível"}
+                      </div>
+                      <div className="gpu-runtime-actions">
+                        {gpuStatus.installed ? (
+                          <button
+                            type="button"
+                            className="btn-secondary btn-small"
+                            onClick={handleDeleteGpu}
+                          >
+                            Desinstalar módulo ({gpuStatus.size_mb} MB)
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn-primary btn-small"
+                            onClick={handleDownloadGpu}
+                            disabled={!!gpuProgress}
+                          >
+                            {gpuProgress ? "Baixando e instalando…" : "⚡ Baixar Módulo NVIDIA CUDA (~670 MB)"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="gpu-runtime-desc">
+                      {gpuStatus.installed
+                        ? "Aceleração real por hardware ativada. Transcrições locais e benchmarks utilizam diretamente os núcleos CUDA da sua placa NVIDIA."
+                        : "Sua placa de vídeo NVIDIA suporta aceleração local ultrarrápida. Baixe o módulo dedicado do whisper.cpp para habilitar o processamento na GPU sem precisar instalar SDKs externos."}
+                    </div>
+                    {gpuProgress && (
+                      <div style={{ marginTop: "0.5rem" }}>
+                        <div className="model-progress-bar">
+                          <div
+                            className="model-progress-fill"
+                            style={{
+                              width:
+                                gpuProgress.total > 0
+                                  ? `${Math.min(100, (gpuProgress.downloaded / gpuProgress.total) * 100)}%`
+                                  : "8%",
+                            }}
+                          />
+                        </div>
+                        <span className="field-hint" style={{ fontSize: "0.74rem", marginTop: "0.25rem", display: "block" }}>
+                          {formatMB(gpuProgress.downloaded)} / {formatMB(gpuProgress.total)} ({gpuProgress.total > 0 ? ((gpuProgress.downloaded / gpuProgress.total) * 100).toFixed(0) : 0}%)
+                        </span>
+                      </div>
+                    )}
+                    {gpuError && (
+                      <p className="field-hint" style={{ color: "#ef4444", marginTop: "0.4rem" }}>
+                        ⚠️ {gpuError}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <section className="field">
                   <label className="field-label">Dispositivo de execução</label>
                   <div className="toggle-group">
@@ -741,16 +864,20 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   </div>
                   <p className="field-hint">
                     {(config.inference_device || "auto") === "auto"
-                      ? hardware?.recommended_device === "gpu"
-                        ? "Modo automático: GPU dedicada detectada. O pipeline gerencia os buffers priorizando estabilidade e velocidade."
-                        : "Modo automático: processador (CPU) selecionado para maior estabilidade."
+                      ? gpuStatus?.installed
+                        ? "Modo automático: Módulo NVIDIA CUDA ativo. Máxima velocidade com aceleração física na placa de vídeo."
+                        : "Modo automático: Executando via processador (CPU com aceleração AVX). Baixe o módulo CUDA acima para ativar a GPU."
                       : config.inference_device === "gpu"
-                      ? "Modo GPU selecionado para aceleração da execução local."
-                      : "Forçando execução puramente pelo processador (CPU)."}
+                      ? gpuStatus?.installed
+                        ? "Modo GPU ativo: Execução forçada na placa NVIDIA via núcleos CUDA."
+                        : "Modo GPU selecionado, mas o Módulo CUDA ainda não foi baixado (baixe acima para habilitar)."
+                      : "Forçando execução puramente pelo processador (CPU com aceleração AVX)."}
                   </p>
-                  <p className="field-hint" style={{ fontSize: "0.74rem", opacity: 0.75, marginTop: "0.35rem" }}>
-                    💡 Nota: O motor Whisper local opera com aceleração matemática vetorial (AVX) para garantir compatibilidade universal em qualquer computador (Intel/AMD) sem dependências externas de drivers CUDA.
-                  </p>
+                  {config.inference_device === "gpu" && !gpuStatus?.installed && (
+                    <p className="field-hint" style={{ color: "#fbbf24", fontWeight: 500, marginTop: "0.25rem" }}>
+                      ⚠️ O módulo NVIDIA CUDA ainda não está instalado. Baixe o módulo no botão acima para usar a GPU.
+                    </p>
+                  )}
                 </section>
 
                 <div className="benchmark-box">

@@ -261,4 +261,24 @@ pub fn clear_api_usage(state: State<'_, crate::usage::SharedUsage>) -> Result<()
     guard.clear().map_err(|e| format!("{:#}", e))
 }
 
+/// Retorna o status do módulo de aceleração por GPU (CUDA).
+#[tauri::command]
+pub fn get_gpu_runtime_status<R: Runtime>(
+    app: AppHandle<R>,
+) -> crate::gpu_runtime::GpuRuntimeStatus {
+    crate::gpu_runtime::get_status(&app)
+}
+
+/// Dispara o download e instalação do pacote oficial do runtime CUDA.
+#[tauri::command]
+pub fn download_gpu_runtime<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::gpu_runtime::spawn_download(app).map_err(|e| format!("{:#}", e))
+}
+
+/// Apaga os arquivos do runtime CUDA para liberar espaço.
+#[tauri::command]
+pub fn delete_gpu_runtime<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::gpu_runtime::delete_gpu_runtime(&app).map_err(|e| format!("{:#}", e))
+}
+
 
