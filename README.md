@@ -21,7 +21,7 @@
 
 ## O que é
 
-Você segura um atalho global (ex: `F9`), fala, e solta. O áudio é
+Você segura um atalho global (ex: `Ctrl+Windows`), fala, e solta. O áudio é
 transcrito, passa por um LLM que corrige pontuação/hesitações e adapta o
 tom ao app onde você vai colar (chat casual, email formal, editor de
 código...), e o resultado é colado automaticamente onde seu cursor estava —
@@ -91,9 +91,9 @@ O primeiro uso pede que você abra Configurações e:
    Groq (cloud, mais rápido).
 3. Se local: baixe pelo menos um modelo do Whisper (Small é o default e
    cobre uso diário em CPU comum).
-4. Ajuste o **atalho global** clicando em "Alterar" (default: `F9`).
-5. (Opcional) Ative "Iniciar automaticamente com o Windows", hands-free,
-   atalho de recolar, microfone específico, etc.
+4. O **atalho global** padrão é `Ctrl+Windows` (alterável clicando em "Alterar").
+5. O app já vem configurado para **iniciar automaticamente com o Windows** por padrão (desativável em Configurações).
+6. (Opcional) Ative modo hands-free, atalho de recolar, microfone específico, etc.
 
 Arquivo de config: `%APPDATA%\com.rlucio.whisperapp\config.json`. Nenhuma
 chave de API é hardcoded no app — todas ficam só nesse arquivo local.

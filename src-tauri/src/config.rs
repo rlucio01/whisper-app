@@ -27,9 +27,9 @@ use tauri::{AppHandle, Manager, Runtime};
 /// Modelos padrão para cada provider. Trocar aqui muda o default para novos
 /// users; users existentes mantêm o que estiver salvo no `config.json`.
 const DEFAULT_OPENAI_MODEL: &str = "gpt-4o-mini";
-const DEFAULT_ANTHROPIC_MODEL: &str = "claude-haiku-4-5-20251001";
+const DEFAULT_ANTHROPIC_MODEL: &str = "claude-3-5-haiku-20241022";
 const DEFAULT_OPENROUTER_MODEL: &str = "openai/gpt-4o-mini";
-const DEFAULT_GROQ_MODEL: &str = "openai/gpt-oss-120b";
+const DEFAULT_GROQ_MODEL: &str = "llama-3.3-70b-versatile";
 const DEFAULT_GEMINI_MODEL: &str = "gemini-2.0-flash";
 const DEFAULT_XAI_MODEL: &str = "grok-3-mini";
 
@@ -170,15 +170,15 @@ pub struct OverlayConfig {
 }
 
 fn default_overlay_scale() -> f32 {
-    1.0
+    0.75
 }
 
 fn default_overlay_opacity() -> f32 {
-    0.92
+    0.90
 }
 
 fn default_overlay_accent() -> String {
-    "#ef4444".to_string()
+    "#ffffff".to_string()
 }
 
 impl Default for OverlayConfig {
@@ -329,6 +329,10 @@ pub struct AppConfig {
     /// para evitar que sons tocando na máquina (música, vídeos, chamadas) vazem no microfone.
     #[serde(default)]
     pub mute_audio_while_recording: bool,
+
+    /// Indica se a inicialização com o Windows já foi configurada no primeiro boot.
+    #[serde(default)]
+    pub autostart_initialized: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -398,6 +402,7 @@ impl Default for AppConfig {
             skip_llm_formatting: false,
             start_minimized: false,
             mute_audio_while_recording: false,
+            autostart_initialized: false,
         }
     }
 }
@@ -422,7 +427,7 @@ fn default_target_language() -> String {
 }
 
 fn default_hotkey() -> String {
-    "F9".to_string()
+    "Ctrl+Super".to_string()
 }
 
 /// Handle compartilhado para o config — guardado como state do Tauri.

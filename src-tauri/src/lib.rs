@@ -31,6 +31,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WindowEvent,
 };
+use tauri_plugin_autostart::ManagerExt;
 
 /// Mantém uma referência ao item de tradução do tray para que alterações
 /// feitas tanto pelo menu quanto pela tela de Configurações atualizem a marca.
@@ -102,10 +103,20 @@ pub fn run() {
         .setup(|app| {
             // Carrega config do disco (ou defaults se ainda não existe).
             // Um erro aqui é logado mas não fatal — seguimos com defaults.
-            let loaded = config::load(app.handle()).unwrap_or_else(|e| {
+            let mut loaded = config::load(app.handle()).unwrap_or_else(|e| {
                 eprintln!("[config] falha ao carregar, usando defaults: {:#}", e);
                 config::AppConfig::default()
             });
+
+            // Ativa inicialização com o Windows por padrão na primeira execução
+            if !loaded.autostart_initialized {
+                if let Err(e) = app.autolaunch().enable() {
+                    eprintln!("[autostart] falha ao registrar autostart padrão: {:#}", e);
+                }
+                loaded.autostart_initialized = true;
+                let _ = config::save(app.handle(), &loaded);
+            }
+
             let start_minimized = loaded.start_minimized;
             let shared_config: config::SharedConfig = Arc::new(Mutex::new(loaded));
             app.manage(shared_config.clone());

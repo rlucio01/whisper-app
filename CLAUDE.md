@@ -111,7 +111,7 @@ Fluxo do usuário:
 - `translate: { enabled, target_language }` — tradução automática.
 - `visual_indicator: none|floating|tray|both` — indicador visual.
 - `hotkey: String` — atalho push-to-talk (segura grava, solta para), formato
-  accelerator (`"F9"`, `"Ctrl+Shift+K"`, `"Alt+Space"`, etc.).
+  accelerator (default: `"Ctrl+Super"`, exibido como `"Ctrl+Windows"` na UI).
 - `hands_free_hotkey: String` — atalho opcional pro modo hands-free (toca
   uma vez pra começar, toca de novo pra parar). Vazio = desativado. Os dois
   compartilham um único flag de "gravação em curso" (`hotkey::SharedRecordingActive`)

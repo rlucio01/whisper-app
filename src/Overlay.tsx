@@ -29,9 +29,9 @@ interface OverlayConfig {
 
 const DEFAULT_OVERLAY_CONFIG: OverlayConfig = {
   position: "bottom",
-  scale: 1,
-  opacity: 0.92,
-  accent_color: "#ef4444",
+  scale: 0.75,
+  opacity: 0.9,
+  accent_color: "#ffffff",
 };
 
 // Precisa espelhar `BASE_WIDTH`/`BASE_HEIGHT` em visual.rs. O Rust

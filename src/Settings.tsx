@@ -50,6 +50,7 @@ interface AppConfig {
   skip_llm_formatting: boolean;
   start_minimized: boolean;
   mute_audio_while_recording: boolean;
+  autostart_initialized?: boolean;
 }
 
 interface ModelStatus {
@@ -89,40 +90,60 @@ const API_KEY_HELP_URL: Record<Provider, string> = {
   xai: "https://console.x.ai",
 };
 
+interface CuratedModel {
+  id: string;
+  label: string;
+}
+
 /** Modelos "recomendados" que aparecem no dropdown por provider. O primeiro
  *  item de cada lista deve ser o mesmo default do Rust (config.rs) — assim
  *  o dropdown reflete o que o backend usa quando `llm_model` está vazio.
  *  Novos modelos sempre podem ser digitados via opção "personalizado". */
-const CURATED_MODELS: Record<Provider, string[]> = {
-  openai: ["gpt-4o-mini", "gpt-4o", "gpt-5-mini", "gpt-5"],
-  anthropic: [
-    "claude-haiku-4-5-20251001",
-    "claude-sonnet-4-6",
-    "claude-opus-4-7",
-  ],
-  openrouter: [
-    "openai/gpt-4o-mini",
-    "anthropic/claude-haiku-4.5",
-    "deepseek/deepseek-chat-v3.1",
-    "google/gemini-2.0-flash-001",
-    "meta-llama/llama-3.3-70b-instruct",
+const CURATED_MODELS: Record<Provider, CuratedModel[]> = {
+  openai: [
+    { id: "gpt-4o-mini", label: "gpt-4o-mini (Mais barato • Recomendado)" },
+    { id: "gpt-4o", label: "gpt-4o (Mais inteligente • Alto desempenho)" },
+    { id: "o3-mini", label: "o3-mini (Raciocínio rápido • Custo-benefício)" },
+    { id: "o1-mini", label: "o1-mini (Raciocínio avançado rápido)" },
+    { id: "o1", label: "o1 (Raciocínio profundo)" },
+    { id: "gpt-4.5-preview", label: "gpt-4.5-preview (Mais recente • Alta escala)" },
   ],
   groq: [
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "qwen/qwen3.6-27b",
-    "groq/compound",
+    { id: "llama-3.1-8b-instant", label: "llama-3.1-8b-instant (Mais barato • Ultra-rápido)" },
+    { id: "llama-3.3-70b-versatile", label: "llama-3.3-70b-versatile (Recomendado • Llama 3.3 recente)" },
+    { id: "deepseek-r1-distill-llama-70b", label: "deepseek-r1-distill-llama-70b (Mais recente • Raciocínio DeepSeek)" },
+    { id: "mixtral-8x7b-32768", label: "mixtral-8x7b-32768 (Contexto longo 32k)" },
+    { id: "gemma2-9b-it", label: "gemma2-9b-it (Google Gemma 2)" },
+  ],
+  anthropic: [
+    { id: "claude-3-5-haiku-20241022", label: "claude-3-5-haiku (Mais barato • Rápido)" },
+    { id: "claude-3-7-sonnet-latest", label: "claude-3-7-sonnet (Mais recente • Raciocínio híbrido)" },
+    { id: "claude-3-5-sonnet-20241022", label: "claude-3-5-sonnet (Recomendado)" },
+    { id: "claude-3-opus-20240229", label: "claude-3-opus (Alta precisão)" },
+  ],
+  openrouter: [
+    { id: "openai/gpt-4o-mini", label: "openai/gpt-4o-mini (Mais barato • Recomendado)" },
+    { id: "deepseek/deepseek-chat", label: "deepseek/deepseek-chat (Mais barato • V3)" },
+    { id: "deepseek/deepseek-r1", label: "deepseek/deepseek-r1 (Raciocínio R1)" },
+    { id: "anthropic/claude-3.5-haiku", label: "anthropic/claude-3.5-haiku" },
+    { id: "google/gemini-2.0-flash-001", label: "google/gemini-2.0-flash-001" },
+    { id: "meta-llama/llama-3.3-70b-instruct", label: "meta-llama/llama-3.3-70b-instruct" },
   ],
   gemini: [
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-2.0-flash-lite",
+    { id: "gemini-2.0-flash-lite", label: "gemini-2.0-flash-lite (Mais barato • Ultra-rápido)" },
+    { id: "gemini-2.0-flash", label: "gemini-2.0-flash (Recomendado • Multimodal)" },
+    { id: "gemini-2.5-pro", label: "gemini-2.5-pro (Mais recente • Avançado)" },
+    { id: "gemini-1.5-pro", label: "gemini-1.5-pro (Contexto 2M tokens)" },
   ],
-  xai: ["grok-3-mini", "grok-3", "grok-4-latest"],
+  xai: [
+    { id: "grok-3-mini", label: "grok-3-mini (Mais barato • Rápido)" },
+    { id: "grok-3", label: "grok-3 (Mais inteligente • Raciocínio)" },
+    { id: "grok-2", label: "grok-2 (Grok 2 anterior)" },
+    { id: "grok-beta", label: "grok-beta" },
+  ],
 };
 
-const DEFAULT_MODEL_OF = (p: Provider) => CURATED_MODELS[p][0];
+const DEFAULT_MODEL_OF = (p: Provider) => CURATED_MODELS[p][0].id;
 
 /** Lê a chave do provider ativo (helper pra evitar `config[activeKey]` que o
  *  TS não estreita bem quando o objeto tem campos não-string). */
@@ -197,7 +218,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
         setConfig(cfg);
         setCustomModelMode(
           cfg.llm_model.trim() !== "" &&
-            !CURATED_MODELS[cfg.provider].includes(cfg.llm_model),
+            !CURATED_MODELS[cfg.provider].some((m) => m.id === cfg.llm_model),
         );
       })
       .catch((e) => setMessage(`Erro ao carregar config: ${e}`));
@@ -675,8 +696,8 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   Padrão ({DEFAULT_MODEL_OF(config.provider)})
                 </option>
                 {curated.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
+                  <option key={m.id} value={m.id}>
+                    {m.label}
                   </option>
                 ))}
                 <option value="__custom">Personalizado…</option>

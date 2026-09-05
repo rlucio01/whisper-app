@@ -49,7 +49,7 @@ use crate::sound;
 use crate::visual;
 
 /// String usada quando o config não tem push-to-talk configurado.
-pub const DEFAULT_HOTKEY: &str = "F9";
+pub const DEFAULT_HOTKEY: &str = "Ctrl+Super";
 
 /// `true` enquanto uma gravação está em curso, iniciada por qualquer um dos
 /// dois atalhos. Ver comentário do módulo para o porquê de ser compartilhado.
