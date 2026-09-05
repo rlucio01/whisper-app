@@ -207,3 +207,14 @@ pub fn cancel_recording<R: Runtime>(app: AppHandle<R>) {
 pub fn confirm_recording<R: Runtime>(app: AppHandle<R>) {
     hotkey::end_recording(&app);
 }
+
+/// Atualiza o sinalizador visual de update no ícone do System Tray
+/// (badge laranja + tooltip informativo + atalho no menu de contexto).
+#[tauri::command]
+pub fn set_tray_update_available<R: Runtime>(
+    app: AppHandle<R>,
+    version: Option<String>,
+) -> Result<(), String> {
+    crate::update_tray_status(&app, version.as_deref())
+        .map_err(|e| format!("falha ao atualizar indicador da bandeja: {:#}", e))
+}

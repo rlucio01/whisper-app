@@ -160,12 +160,21 @@ function setApiKey(cfg: AppConfig, provider: Provider, value: string): AppConfig
   }
 }
 
+export type SettingsTab =
+  | "audio"
+  | "hotkeys"
+  | "transcription"
+  | "llm"
+  | "overlay"
+  | "updates";
+
 interface SettingsProps {
   onBack: () => void;
   updater: ReturnType<typeof useUpdater>;
+  initialTab?: SettingsTab;
 }
 
-export default function Settings({ onBack, updater }: SettingsProps) {
+export default function Settings({ onBack, updater, initialTab = "audio" }: SettingsProps) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -176,6 +185,11 @@ export default function Settings({ onBack, updater }: SettingsProps) {
   // (que É um valor curado), então a comparação de string sozinha escondia
   // o campo de novo. Esse state guarda a intenção explícita do usuário.
   const [customModelMode, setCustomModelMode] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     invoke<AppConfig>("get_config")
@@ -202,16 +216,6 @@ export default function Settings({ onBack, updater }: SettingsProps) {
       setMessage(`Falha ao ${enable ? "ativar" : "desativar"} autostart: ${e}`);
     }
   }
-
-  type SettingsTab =
-    | "audio"
-    | "hotkeys"
-    | "transcription"
-    | "llm"
-    | "overlay"
-    | "updates";
-
-  const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
 
   if (!config) {
     return (

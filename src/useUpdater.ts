@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
@@ -52,8 +53,12 @@ export function useUpdater() {
           total: null,
           error: null,
         });
-      } else if (!silent) {
-        setInfo({ ...INITIAL, status: "up_to_date" });
+        invoke("set_tray_update_available", { version: update.version }).catch(() => {});
+      } else {
+        invoke("set_tray_update_available", { version: null }).catch(() => {});
+        if (!silent) {
+          setInfo({ ...INITIAL, status: "up_to_date" });
+        }
       }
     } catch (e) {
       // Checagem silenciosa (boot) falha em silêncio — sem internet, sem

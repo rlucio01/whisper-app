@@ -29,12 +29,13 @@ use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 
 /// Mantém uma referência ao item de tradução do tray para que alterações
 /// feitas tanto pelo menu quanto pela tela de Configurações atualizem a marca.
-struct TranslationTrayItem(CheckMenuItem<tauri::Wry>);
+#[derive(Clone)]
+struct TranslationTrayItem(Arc<Mutex<Option<Box<dyn std::any::Any + Send>>>>);
 
 /// Grava panics em `crash.log` (mesma pasta do `config.json`) antes do
 /// processo morrer. Sem isso, um panic em qualquer thread — incluindo o
@@ -143,6 +144,7 @@ pub fn run() {
             ));
             app.manage(audio::AudioService::spawn(app.handle().clone()));
 
+            app.manage(TranslationTrayItem(Arc::new(Mutex::new(None))));
             build_tray(app)?;
             hotkey::register(app.handle())?;
 
@@ -187,24 +189,42 @@ pub fn run() {
             commands::repaste_text,
             commands::cancel_recording,
             commands::confirm_recording,
+            commands::set_tray_update_available,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o app Tauri");
 }
 
-/// Cria o ícone da bandeja com menu de contexto e handlers de clique.
-fn build_tray(app: &tauri::App) -> tauri::Result<()> {
-    // Item de versão: só informativo (enabled=false, não dispara clique) —
-    // ajuda a identificar rapidamente qual build está rodando, já que o
-    // update é manual (ver CLAUDE.md) e é fácil esquecer qual versão foi
-    // reinstalada por último.
-    let version_label = format!("v{}", app.package_info().version);
-    let version = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
+/// Cria o menu de contexto do tray com a opção "Abrir" destacada no topo.
+/// Se `update_version` for informado, insere um item no topo indicando que
+/// há uma atualização pronta para instalar.
+fn create_tray_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    update_version: Option<&str>,
+) -> tauri::Result<Menu<R>> {
+    let menu = Menu::new(app)?;
+
+    // Se houver update disponível, coloca o aviso de atualização no topo
+    if let Some(ver) = update_version {
+        let update_label = format!("🚀 Atualização v{} disponível!", ver);
+        let update_item =
+            MenuItem::with_id(app, "update_available", &update_label, true, None::<&str>)?;
+        menu.append(&update_item)?;
+        let sep0 = PredefinedMenuItem::separator(app)?;
+        menu.append(&sep0)?;
+    }
+
+    // 1. "Abrir" em destaque no topo das opções
+    let show = MenuItem::with_id(app, "show", "Abrir", true, None::<&str>)?;
+    menu.append(&show)?;
+
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    menu.append(&sep1)?;
+
+    // 2. Tradução automática (com checkbox)
     let translate_enabled = app
-        .state::<config::SharedConfig>()
-        .lock()
-        .map(|cfg| cfg.translate.enabled)
+        .try_state::<config::SharedConfig>()
+        .and_then(|state| state.lock().ok().map(|cfg| cfg.translate.enabled))
         .unwrap_or(false);
     let translation = CheckMenuItem::with_id(
         app,
@@ -214,22 +234,118 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         translate_enabled,
         None::<&str>,
     )?;
-    app.manage(TranslationTrayItem(translation.clone()));
+    menu.append(&translation)?;
 
-    // MenuItem::with_id — o `id` é como identificamos qual item foi clicado
-    // depois, dentro do `on_menu_event`.
-    let show = MenuItem::with_id(app, "show", "Mostrar janela", true, None::<&str>)?;
+    if let Some(holder) = app.try_state::<TranslationTrayItem>() {
+        if let Ok(mut guard) = holder.0.lock() {
+            *guard = Some(Box::new(translation));
+        }
+    }
+
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    menu.append(&sep2)?;
+
+    // 3. Versão atual instalada (informativo, disabled)
+    let version_label = format!("v{}", app.package_info().version);
+    let version = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
+    menu.append(&version)?;
+
+    // 4. Sair
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&version, &separator, &translation, &show, &quit])?;
+    menu.append(&quit)?;
+
+    Ok(menu)
+}
+
+/// Cria uma cópia do ícone padrão desenhando um indicador circular (badge)
+/// no canto superior direito para alertar visualmente sobre uma nova versão.
+pub fn create_badged_tray_icon(base_icon: &tauri::image::Image) -> tauri::image::Image<'static> {
+    let width = base_icon.width();
+    let height = base_icon.height();
+    let mut rgba = base_icon.rgba().to_vec();
+
+    let radius = (width.min(height) as f32 * 0.22).max(3.5);
+    let border_width = 1.2f32;
+    let center_x = width as f32 - radius - 1.0;
+    let center_y = radius + 1.0;
+
+    for y in 0..height {
+        for x in 0..width {
+            let dx = x as f32 - center_x;
+            let dy = y as f32 - center_y;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            let idx = ((y * width + x) * 4) as usize;
+            if idx + 3 >= rgba.len() {
+                continue;
+            }
+
+            if dist <= radius {
+                // Badge: Laranja vibrante chamativo (#ff6b00)
+                rgba[idx] = 255;
+                rgba[idx + 1] = 107;
+                rgba[idx + 2] = 0;
+                rgba[idx + 3] = 255;
+            } else if dist <= radius + border_width {
+                // Borda de contraste escura para destacar em qualquer tema da barra de tarefas
+                rgba[idx] = 18;
+                rgba[idx + 1] = 18;
+                rgba[idx + 2] = 18;
+                rgba[idx + 3] = 230;
+            }
+        }
+    }
+
+    tauri::image::Image::new_owned(rgba, width, height)
+}
+
+/// Atualiza o ícone, tooltip e menu da bandeja de acordo com o status de atualização.
+pub fn update_tray_status<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    version: Option<&str>,
+) -> tauri::Result<()> {
+    let Some(tray) = app.tray_by_id("main-tray") else {
+        return Ok(());
+    };
+
+    if let Some(ver) = version {
+        if let Some(default_icon) = app.default_window_icon() {
+            let badged = create_badged_tray_icon(default_icon);
+            let _ = tray.set_icon(Some(badged));
+        }
+        let _ = tray.set_tooltip(Some(format!(
+            "Whisper App — Nova versão v{} disponível!",
+            ver
+        )));
+    } else {
+        if let Some(default_icon) = app.default_window_icon() {
+            let _ = tray.set_icon(Some(default_icon.clone()));
+        }
+        let _ = tray.set_tooltip(Some("Whisper App"));
+    }
+
+    let menu = create_tray_menu(app, version)?;
+    let _ = tray.set_menu(Some(menu));
+
+    Ok(())
+}
+
+/// Cria o ícone da bandeja com menu de contexto e handlers de clique.
+fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    let menu = create_tray_menu(app.handle(), None)?;
 
     TrayIconBuilder::with_id("main-tray")
-        // Usa o mesmo ícone da janela principal (definido em tauri.conf.json).
         .icon(app.default_window_icon().unwrap().clone())
+        .tooltip("Whisper App")
         .menu(&menu)
         // No Windows a convenção é: clique esquerdo abre a janela, clique
         // direito abre o menu. Sem isso, o menu abriria em ambos os cliques.
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
+            "update_available" => {
+                show_main_window(app);
+                let _ = app.emit("open-updates-tab", ());
+            }
             "toggle-translation" => toggle_translation(app),
             "show" => show_main_window(app),
             "quit" => app.exit(0),
@@ -283,7 +399,13 @@ pub(crate) fn set_translation_tray_checked<R: tauri::Runtime>(
     enabled: bool,
 ) {
     if let Some(item) = app.try_state::<TranslationTrayItem>() {
-        let _ = item.0.set_checked(enabled);
+        if let Ok(guard) = item.0.lock() {
+            if let Some(ref boxed) = *guard {
+                if let Some(check_item) = boxed.downcast_ref::<CheckMenuItem<R>>() {
+                    let _ = check_item.set_checked(enabled);
+                }
+            }
+        }
     }
 }
 

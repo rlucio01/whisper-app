@@ -28,10 +28,11 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::config::WhisperModel;
 
-/// Metadata estática de cada modelo. `filename` bate com o nome no HF.
+/// Metadata estática de cada modelo. `filename` bate com o arquivo GGML.
 pub struct ModelMeta {
     pub filename: &'static str,
-    pub url: &'static str,
+    /// Lista ordenada de espelhos para download resiliente (bypassa bloqueios do HuggingFace).
+    pub urls: &'static [&'static str],
     /// Tamanho aproximado em MB (para a UI mostrar antes do download).
     pub size_mb: u32,
     /// Nome amigável exibido no dropdown.
@@ -43,31 +44,46 @@ impl WhisperModel {
         match self {
             WhisperModel::Tiny => ModelMeta {
                 filename: "ggml-tiny-q5_1.bin",
-                url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+                urls: &[
+                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+                    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+                ],
                 size_mb: 31,
                 display_name: "Tiny (~31MB) — mais rápido, menos preciso",
             },
             WhisperModel::Base => ModelMeta {
                 filename: "ggml-base-q5_1.bin",
-                url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+                urls: &[
+                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+                    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+                ],
                 size_mb: 59,
                 display_name: "Base (~59MB) — bom para testes",
             },
             WhisperModel::Small => ModelMeta {
                 filename: "ggml-small-q5_1.bin",
-                url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+                urls: &[
+                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+                    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+                ],
                 size_mb: 181,
                 display_name: "Small (~181MB) — recomendado para uso diário",
             },
             WhisperModel::Medium => ModelMeta {
-                filename: "ggml-medium-q5_1.bin",
-                url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_1.bin",
+                filename: "ggml-medium-q5_0.bin",
+                urls: &[
+                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
+                    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
+                ],
                 size_mb: 514,
                 display_name: "Medium (~514MB) — mais preciso, mais lento",
             },
             WhisperModel::LargeTurbo => ModelMeta {
                 filename: "ggml-large-v3-turbo-q5_0.bin",
-                url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+                urls: &[
+                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+                    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+                ],
                 size_mb: 574,
                 display_name: "Large-v3 Turbo (~574MB) — máxima precisão",
             },
@@ -218,19 +234,37 @@ fn download_blocking<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<
         .build()
         .context("falha ao criar HTTP client")?;
 
-    let mut response = client
-        .get(meta.url)
-        .send()
-        .with_context(|| format!("falha ao iniciar download de {}", meta.url))?;
+    let mut response_opt = None;
+    let mut last_error = String::new();
 
-    let status = response.status();
-    if !status.is_success() {
-        return Err(anyhow!(
-            "download retornou HTTP {} para {}",
-            status,
-            meta.url
-        ));
+    for &url in meta.urls {
+        eprintln!("[models] tentando baixar de: {}", url);
+        match client.get(url).send() {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    response_opt = Some((resp, url));
+                    break;
+                } else {
+                    last_error = format!("HTTP {} ({})", status, url);
+                    eprintln!("[models] espelho retornou status {}: {}", status, url);
+                }
+            }
+            Err(e) => {
+                last_error = format!("{:#} ({})", e, url);
+                eprintln!("[models] falha ao conectar no espelho {}: {:#}", url, e);
+            }
+        }
     }
+
+    let (mut response, active_url) = response_opt.ok_or_else(|| {
+        anyhow!(
+            "falha ao baixar o modelo de todos os espelhos disponíveis (último erro: {})",
+            last_error
+        )
+    })?;
+
+    eprintln!("[models] baixando com sucesso a partir de: {}", active_url);
 
     let total = response.content_length().unwrap_or(0);
     let mut file = fs::File::create(&part_path)

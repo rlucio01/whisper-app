@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import Settings from "./Settings";
+import Settings, { type SettingsTab } from "./Settings";
 import History from "./History";
 import { DEFAULT_HOTKEY, displayHotkey } from "./hotkeyFormat";
 import { playBeep, type SoundKind } from "./sound";
@@ -21,6 +21,7 @@ type View = "main" | "settings" | "history";
 
 function App() {
   const [view, setView] = useState<View>("main");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("audio");
   const [status, setStatus] = useState<Status>("idle");
   const [rawTranscript, setRawTranscript] = useState<string | null>(null);
   const [formattedText, setFormattedText] = useState<string | null>(null);
@@ -56,6 +57,13 @@ function App() {
     const unlistenFns: UnlistenFn[] = [];
     const track = (p: Promise<UnlistenFn>) =>
       p.then((fn) => unlistenFns.push(fn));
+
+    track(
+      listen("open-updates-tab", () => {
+        setSettingsTab("updates");
+        setView("settings");
+      })
+    );
 
     track(
       listen("hotkey-pressed", () => {
@@ -145,7 +153,11 @@ function App() {
   if (view === "settings") {
     return (
       <main className="container">
-        <Settings onBack={() => setView("main")} updater={updater} />
+        <Settings
+          onBack={() => setView("main")}
+          updater={updater}
+          initialTab={settingsTab}
+        />
       </main>
     );
   }
@@ -179,7 +191,10 @@ function App() {
           </button>
           <button
             className="icon-btn"
-            onClick={() => setView("settings")}
+            onClick={() => {
+              setSettingsTab("audio");
+              setView("settings");
+            }}
             title="Configurações"
             aria-label="Configurações"
           >
