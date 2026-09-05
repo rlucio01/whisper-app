@@ -159,11 +159,11 @@ const CURATED_MODELS: Record<Provider, CuratedModel[]> = {
     { id: "gpt-4.5-preview", label: "gpt-4.5-preview (Mais recente • Alta escala)" },
   ],
   groq: [
-    { id: "llama-3.1-8b-instant", label: "llama-3.1-8b-instant (Mais barato • Ultra-rápido)" },
-    { id: "llama-3.3-70b-versatile", label: "llama-3.3-70b-versatile (Recomendado • Llama 3.3 recente)" },
-    { id: "deepseek-r1-distill-llama-70b", label: "deepseek-r1-distill-llama-70b (Mais recente • Raciocínio DeepSeek)" },
-    { id: "mixtral-8x7b-32768", label: "mixtral-8x7b-32768 (Contexto longo 32k)" },
-    { id: "gemma2-9b-it", label: "gemma2-9b-it (Google Gemma 2)" },
+    { id: "openai/gpt-oss-20b", label: "openai/gpt-oss-20b (Mais rápido • Econômico • Recomendado)" },
+    { id: "openai/gpt-oss-120b", label: "openai/gpt-oss-120b (Mais inteligente • Raciocínio profundo)" },
+    { id: "groq/compound-mini", label: "groq/compound-mini (Rápido • Ferramentas integradas)" },
+    { id: "groq/compound", label: "groq/compound (Sistema completo • Alta precisão)" },
+    { id: "qwen/qwen3.6-27b", label: "qwen/qwen3.6-27b (Qwen 3.6 • Multilíngue)" },
   ],
   anthropic: [
     { id: "claude-3-5-haiku-20241022", label: "claude-3-5-haiku (Mais barato • Rápido)" },
@@ -742,11 +742,14 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   <p className="field-hint">
                     {(config.inference_device || "auto") === "auto"
                       ? hardware?.recommended_device === "gpu"
-                        ? "Modo automático: GPU dedicada detectada e ativada para máxima velocidade."
+                        ? "Modo automático: GPU dedicada detectada. O pipeline gerencia os buffers priorizando estabilidade e velocidade."
                         : "Modo automático: processador (CPU) selecionado para maior estabilidade."
                       : config.inference_device === "gpu"
-                      ? "Forçando aceleração por GPU para a execução do modelo Whisper."
+                      ? "Modo GPU selecionado para aceleração da execução local."
                       : "Forçando execução puramente pelo processador (CPU)."}
+                  </p>
+                  <p className="field-hint" style={{ fontSize: "0.74rem", opacity: 0.75, marginTop: "0.35rem" }}>
+                    💡 Nota: O motor Whisper local opera com aceleração matemática vetorial (AVX) para garantir compatibilidade universal em qualquer computador (Intel/AMD) sem dependências externas de drivers CUDA.
                   </p>
                 </section>
 

@@ -29,7 +29,7 @@ use tauri::{AppHandle, Manager, Runtime};
 const DEFAULT_OPENAI_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_ANTHROPIC_MODEL: &str = "claude-3-5-haiku-20241022";
 const DEFAULT_OPENROUTER_MODEL: &str = "openai/gpt-4o-mini";
-const DEFAULT_GROQ_MODEL: &str = "llama-3.3-70b-versatile";
+const DEFAULT_GROQ_MODEL: &str = "openai/gpt-oss-20b";
 const DEFAULT_GEMINI_MODEL: &str = "gemini-2.0-flash";
 const DEFAULT_XAI_MODEL: &str = "grok-3-mini";
 
@@ -489,8 +489,14 @@ pub fn load<R: Runtime>(app: &AppHandle<R>) -> Result<AppConfig> {
     }
     let s = std::fs::read_to_string(&path)
         .with_context(|| format!("falha ao ler config em {}", path.display()))?;
-    let cfg: AppConfig = serde_json::from_str(&s)
+    let mut cfg: AppConfig = serde_json::from_str(&s)
         .with_context(|| format!("config.json inválido em {}", path.display()))?;
+
+    // Migra automaticamente modelos descontinuados da Groq para a nova versão de produção
+    if cfg.llm_model == "llama-3.3-70b-versatile" || cfg.llm_model == "llama-3.1-8b-instant" {
+        cfg.llm_model = "openai/gpt-oss-20b".to_string();
+    }
+
     Ok(cfg)
 }
 
