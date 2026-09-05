@@ -26,10 +26,14 @@ mod visual;
 use std::sync::{Arc, Mutex};
 
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
+
+/// Mantém uma referência ao item de tradução do tray para que alterações
+/// feitas tanto pelo menu quanto pela tela de Configurações atualizem a marca.
+struct TranslationTrayItem(CheckMenuItem<tauri::Wry>);
 
 /// Grava panics em `crash.log` (mesma pasta do `config.json`) antes do
 /// processo morrer. Sem isso, um panic em qualquer thread — incluindo o
@@ -196,12 +200,26 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let version_label = format!("v{}", app.package_info().version);
     let version = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
+    let translate_enabled = app
+        .state::<config::SharedConfig>()
+        .lock()
+        .map(|cfg| cfg.translate.enabled)
+        .unwrap_or(false);
+    let translation = CheckMenuItem::with_id(
+        app,
+        "toggle-translation",
+        "Tradução automática",
+        true,
+        translate_enabled,
+        None::<&str>,
+    )?;
+    app.manage(TranslationTrayItem(translation.clone()));
 
     // MenuItem::with_id — o `id` é como identificamos qual item foi clicado
     // depois, dentro do `on_menu_event`.
     let show = MenuItem::with_id(app, "show", "Mostrar janela", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&version, &separator, &show, &quit])?;
+    let menu = Menu::with_items(app, &[&version, &separator, &translation, &show, &quit])?;
 
     TrayIconBuilder::with_id("main-tray")
         // Usa o mesmo ícone da janela principal (definido em tauri.conf.json).
@@ -211,6 +229,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         // direito abre o menu. Sem isso, o menu abriria em ambos os cliques.
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
+            "toggle-translation" => toggle_translation(app),
             "show" => show_main_window(app),
             "quit" => app.exit(0),
             _ => {}
@@ -229,6 +248,42 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+/// Alterna a tradução pelo tray, persistindo exatamente no mesmo config que
+/// a tela de Configurações usa. Se a escrita falhar, o item visual volta ao
+/// estado anterior para não prometer uma mudança que não foi salva.
+fn toggle_translation<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let state = app.state::<config::SharedConfig>();
+    let Ok(mut guard) = state.lock() else {
+        return;
+    };
+    let previous = guard.translate.enabled;
+    guard.translate.enabled = !previous;
+    let updated = guard.clone();
+    drop(guard);
+
+    if config::save(app, &updated).is_err() {
+        if let Ok(mut guard) = state.lock() {
+            guard.translate.enabled = previous;
+        }
+    }
+    let current_enabled = state
+        .lock()
+        .map(|cfg| cfg.translate.enabled)
+        .unwrap_or(previous);
+    set_translation_tray_checked(app, current_enabled);
+}
+
+/// Sincroniza a marca do item de tray quando o config é salvo por qualquer
+/// caminho (menu ou tela de Configurações).
+pub(crate) fn set_translation_tray_checked<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    enabled: bool,
+) {
+    if let Some(item) = app.try_state::<TranslationTrayItem>() {
+        let _ = item.0.set_checked(enabled);
+    }
 }
 
 /// Mostra a janela principal e traz para o foco.

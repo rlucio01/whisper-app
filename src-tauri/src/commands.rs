@@ -70,12 +70,15 @@ pub fn save_config<R: Runtime>(
     // Só o necessário pro evento abaixo — evita clonar o `AppConfig` inteiro
     // (chaves de API incluídas) só pra isso.
     let overlay_for_event = new_config.overlay.clone();
+    let translation_enabled = new_config.translate.enabled;
 
     let mut guard = state
         .lock()
         .map_err(|_| "config mutex envenenado".to_string())?;
     *guard = new_config;
     drop(guard);
+
+    crate::set_translation_tray_checked(&app, translation_enabled);
 
     // A janela do overlay já está carregada (só escondida) desde o boot, e
     // lê a config uma vez no mount — sem isso, mudar opacidade/cor em

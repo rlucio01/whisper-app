@@ -156,6 +156,7 @@ fn transcription_thread_loop<R: Runtime>(
                         &app,
                         &wav_path,
                         cfg_snapshot.whisper_model,
+                        &cfg_snapshot.transcription_language,
                         &mut loaded,
                     ),
                     TranscriptionProvider::OpenaiCloud => {
@@ -167,6 +168,7 @@ fn transcription_thread_loop<R: Runtime>(
                                 endpoint: OPENAI_ENDPOINT,
                                 model: OPENAI_MODEL,
                                 api_key: &cfg_snapshot.openai_api_key,
+                                language: &cfg_snapshot.transcription_language,
                                 label: "OpenAI",
                             },
                         )
@@ -180,6 +182,7 @@ fn transcription_thread_loop<R: Runtime>(
                                 endpoint: GROQ_ENDPOINT,
                                 model: GROQ_MODEL,
                                 api_key: &cfg_snapshot.groq_api_key,
+                                language: &cfg_snapshot.transcription_language,
                                 label: "Groq",
                             },
                         )
@@ -236,6 +239,7 @@ fn transcribe_local<R: Runtime>(
     app: &AppHandle<R>,
     wav_path: &Path,
     wanted: WhisperModel,
+    language: &str,
     loaded: &mut Option<LoadedModel>,
 ) -> Result<String> {
     ensure_model_loaded(app, wanted, loaded, /*emit_status=*/ true)?;
@@ -246,7 +250,7 @@ fn transcribe_local<R: Runtime>(
         .ctx;
 
     let _ = app.emit("transcription-status", "transcrevendo");
-    transcribe_wav_local(ctx, wav_path)
+    transcribe_wav_local(ctx, wav_path, language)
 }
 
 /// Carrega o modelo local do disco. Falha com mensagem amigável se o arquivo
@@ -274,7 +278,7 @@ fn load_local_model<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<W
 }
 
 /// Executa a transcrição local usando o modelo já carregado.
-fn transcribe_wav_local(ctx: &WhisperContext, wav_path: &Path) -> Result<String> {
+fn transcribe_wav_local(ctx: &WhisperContext, wav_path: &Path, language: &str) -> Result<String> {
     let audio = read_and_prepare_wav(wav_path)?;
 
     let mut state = ctx
@@ -282,7 +286,8 @@ fn transcribe_wav_local(ctx: &WhisperContext, wav_path: &Path) -> Result<String>
         .context("falha ao criar state do whisper")?;
 
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    params.set_language(None);
+    let language = language.trim();
+    params.set_language((!language.is_empty()).then_some(language));
     params.set_print_progress(false);
     params.set_print_special(false);
     params.set_print_realtime(false);
@@ -323,6 +328,8 @@ struct CloudTranscribeConfig<'a> {
     endpoint: &'static str,
     model: &'static str,
     api_key: &'a str,
+    /// Código ISO opcional. Vazio preserva a detecção automática da API.
+    language: &'a str,
     /// Nome do provider — usado em mensagens de erro.
     label: &'static str,
 }
@@ -349,11 +356,14 @@ fn transcribe_cloud(
 
     // `Form::file` lê o arquivo por streaming, sem carregar tudo em RAM.
     // A extensão `.wav` no filename orienta o parser do provider.
-    let form = reqwest::blocking::multipart::Form::new()
+    let mut form = reqwest::blocking::multipart::Form::new()
         .text("model", cfg.model)
         .text("response_format", "json")
         .file("file", &send_path)
         .with_context(|| format!("falha ao anexar {}", send_path.display()))?;
+    if !cfg.language.trim().is_empty() {
+        form = form.text("language", cfg.language.trim().to_string());
+    }
 
     let response = client
         .post(cfg.endpoint)

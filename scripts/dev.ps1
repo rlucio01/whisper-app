@@ -38,6 +38,7 @@ Enter-VsDevShell -VsInstallPath $VsInstallPath -DevCmdArguments "-arch=x64 -host
 #    o generator Ninja não aceita instance. Removemos para não conflitar.
 Remove-Item Env:VSINSTALLDIR -ErrorAction SilentlyContinue
 Remove-Item Env:CMAKE_GENERATOR_INSTANCE -ErrorAction SilentlyContinue
+Remove-Item Env:CMAKE_GENERATOR_PLATFORM -ErrorAction SilentlyContinue
 
 # 3. Adiciona ao PATH: Cargo, CMake, LLVM (libclang.dll) e Ninja.
 $env:PATH = "$CargoBin;$CMakePath\bin;$LlvmPath\bin;$NinjaPath;$env:PATH"
@@ -71,6 +72,9 @@ if ($mode -eq "build") {
         Write-Host "    você gere uma nova chave com 'npm run tauri signer generate'." -ForegroundColor Yellow
     }
     npm run tauri build
+} elseif ($mode -eq "check") {
+    Set-Location src-tauri
+    cargo check
 } else {
     npm run tauri dev
 }

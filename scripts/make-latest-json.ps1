@@ -37,7 +37,7 @@ $repo = "rlucio01/whisper-app"
 $nsisDir = "src-tauri\target\release\bundle\nsis"
 $sigFile = Get-ChildItem -Path $nsisDir -Filter "*_${version}_*.exe.sig" -ErrorAction Stop | Select-Object -First 1
 if (-not $sigFile) {
-    throw "Nenhum .exe.sig da versao $version encontrado em $nsisDir — rode '.\scripts\dev.ps1 build' primeiro (com a chave do updater configurada)."
+    throw "Nenhum .exe.sig da versao $version encontrado em $nsisDir - rode '.\scripts\dev.ps1 build' primeiro (com a chave do updater configurada)."
 }
 
 $exeName = $sigFile.Name -replace '\.sig$', ''
@@ -59,8 +59,9 @@ $manifest = [ordered]@{
 }
 
 $outPath = Join-Path $nsisDir "latest.json"
-$manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $outPath -Encoding utf8NoBOM
+$json = $manifest | ConvertTo-Json -Depth 5
+[System.IO.File]::WriteAllText($outPath, $json, [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "==> latest.json gerado em $outPath" -ForegroundColor Cyan
-Write-Host "    versão: $version | tag esperada: $tag | instalador: $exeName" -ForegroundColor Cyan
+Write-Host "    versao: $version | tag esperada: $tag | instalador: $exeName" -ForegroundColor Cyan
 Write-Host "    Suba esse arquivo E o $exeName como assets da release $tag." -ForegroundColor Cyan

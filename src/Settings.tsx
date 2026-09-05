@@ -42,6 +42,7 @@ interface AppConfig {
   hands_free_hotkey: string;
   repaste_hotkey: string;
   transcription_provider: TranscriptionProvider;
+  transcription_language: string;
   whisper_model: WhisperModelSlug;
   microphone: string;
   adapt_prompt_to_active_app: boolean;
@@ -380,6 +381,31 @@ export default function Settings({ onBack, updater }: SettingsProps) {
             Groq (cloud)
           </button>
         </div>
+        <label className="field-label" htmlFor="transcription-language">
+          Idioma da fala
+        </label>
+        <select
+          id="transcription-language"
+          className="text-input"
+          value={config.transcription_language}
+          onChange={(e) =>
+            setConfig({ ...config, transcription_language: e.target.value })
+          }
+        >
+          <option value="">Detectar automaticamente</option>
+          <option value="pt">Português</option>
+          <option value="en">Inglês</option>
+          <option value="es">Espanhol</option>
+          <option value="fr">Francês</option>
+          <option value="de">Alemão</option>
+          <option value="it">Italiano</option>
+          <option value="ja">Japonês</option>
+        </select>
+        <p className="field-hint">
+          Em “Detectar automaticamente”, o comportamento é o mesmo das versões
+          anteriores. Defina o idioma para melhorar a precisão em ditados de um
+          único idioma.
+        </p>
         {config.transcription_provider === "local" && (
           <ModelPicker
             selected={config.whisper_model}

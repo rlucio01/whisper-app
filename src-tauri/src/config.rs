@@ -277,6 +277,14 @@ pub struct AppConfig {
     #[serde(default)]
     pub transcription_provider: TranscriptionProvider,
 
+    /// Idioma esperado da fala no reconhecimento. Vazio mantém a detecção
+    /// automática do Whisper (comportamento das versões anteriores). Quando
+    /// preenchido, usamos o código ISO 639-1 tanto no modo local quanto nas
+    /// APIs cloud, o que costuma melhorar precisão e reduzir a latência em
+    /// ditados monolíngues.
+    #[serde(default)]
+    pub transcription_language: String,
+
     /// Qual modelo local usar (só relevante se `transcription_provider = local`).
     /// Se o arquivo ainda não foi baixado, a transcrição erra com uma mensagem
     /// pedindo pra ir em settings e baixar.
@@ -377,6 +385,7 @@ impl Default for AppConfig {
             hands_free_hotkey: String::new(),
             repaste_hotkey: String::new(),
             transcription_provider: TranscriptionProvider::default(),
+            transcription_language: String::new(),
             whisper_model: WhisperModel::default(),
             microphone: String::new(),
             adapt_prompt_to_active_app: true,

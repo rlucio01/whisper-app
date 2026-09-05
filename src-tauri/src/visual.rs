@@ -98,6 +98,11 @@ fn show_overlay<R: Runtime>(app: &AppHandle<R>) {
     let cfg = current_overlay_config(app);
     apply_scale(&window, cfg.scale);
     position_overlay(&window, cfg.position);
+    // Reafirma a prioridade nativa toda vez que a barra reaparece. Alguns
+    // programas recriam sua janela ou promovem a própria Z-order depois de a
+    // nossa janela ter sido criada, deixando o alwaysOnTop inicial de lado.
+    // Não pedimos foco: a barra continua sem interferir no destino do texto.
+    let _ = window.set_always_on_top(true);
     let _ = window.show();
 }
 
