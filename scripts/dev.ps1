@@ -47,17 +47,16 @@ $env:PATH = "$CargoBin;$CMakePath\bin;$LlvmPath\bin;$NinjaPath;$env:PATH"
 $env:LIBCLANG_PATH = "$LlvmPath\bin"
 $env:CMAKE_GENERATOR = "Ninja"
 
-# Desativa otimizações específicas da CPU host (AVX2, AVX512, FMA) para garantir
-# que o binário gerado seja portável x86_64 e funcione em qualquer computador
-# sem disparar exceções de instrução ilegal (0xc000001d APPCRASH).
+# Mantém AVX (1.0) ativo para velocidade total de SIMD (~1s por transcrição),
+# mas desativa AVX2, AVX512 e FMA para compatibilidade universal com qualquer
+# CPU que possua AVX (evita APPCRASH 0xc000001d gerado pelo host Ryzen Zen 4 AVX-512).
 $env:GGML_NATIVE = "OFF"
-$env:GGML_AVX    = "OFF"
+$env:GGML_AVX    = "ON"
 $env:GGML_AVX2   = "OFF"
 $env:GGML_AVX512 = "OFF"
 $env:GGML_FMA    = "OFF"
 $env:GGML_F16C   = "OFF"
 $env:GGML_BMI2   = "OFF"
-$env:GGML_SSE42  = "OFF"
 
 # 5. Volta para a raiz do projeto (independentemente de onde o script foi chamado).
 Set-Location (Split-Path -Parent $PSScriptRoot)

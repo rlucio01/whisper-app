@@ -1,9 +1,8 @@
 [env]
 GGML_NATIVE = { value = "OFF", force = true }
-GGML_AVX = { value = "OFF", force = true }
+GGML_AVX = { value = "ON", force = true }
 GGML_AVX2 = { value = "OFF", force = true }
 GGML_AVX512 = { value = "OFF", force = true }
 GGML_FMA = { value = "OFF", force = true }
 GGML_F16C = { value = "OFF", force = true }
 GGML_BMI2 = { value = "OFF", force = true }
-GGML_SSE42 = { value = "OFF", force = true }
