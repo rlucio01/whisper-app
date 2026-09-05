@@ -93,6 +93,24 @@ impl Default for WhisperModel {
     }
 }
 
+/// Preferência de dispositivo para execução do modelo Whisper local.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InferenceDevice {
+    /// Detecção automática: usa GPU se uma GPU dedicada for encontrada, senão CPU.
+    Auto,
+    /// Força aceleração por GPU.
+    Gpu,
+    /// Força execução exclusiva em CPU.
+    Cpu,
+}
+
+impl Default for InferenceDevice {
+    fn default() -> Self {
+        InferenceDevice::Auto
+    }
+}
+
 /// Como sinalizar visualmente que a gravação está em curso (importante quando
 /// o app está no tray e outras janelas cobrem a UI principal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -291,6 +309,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub whisper_model: WhisperModel,
 
+    /// Dispositivo para inferência local: auto (GPU se disponível), gpu ou cpu.
+    #[serde(default)]
+    pub inference_device: InferenceDevice,
+
     /// Nome do dispositivo de entrada de áudio a usar (exatamente como
     /// `cpal` reporta em `Device::name()`). Vazio = usa o device default do
     /// SO. Se o dispositivo salvo não existir mais (desconectado), a
@@ -374,6 +396,18 @@ impl AppConfig {
             LlmProvider::Xai => DEFAULT_XAI_MODEL,
         }
     }
+
+    /// Determina se a inferência local deve tentar utilizar aceleração por GPU.
+    pub fn should_use_gpu(&self) -> bool {
+        match self.inference_device {
+            InferenceDevice::Gpu => true,
+            InferenceDevice::Cpu => false,
+            InferenceDevice::Auto => {
+                let hw = crate::hardware::detect_hardware();
+                hw.recommended_device == "gpu"
+            }
+        }
+    }
 }
 
 impl Default for AppConfig {
@@ -396,6 +430,7 @@ impl Default for AppConfig {
             transcription_provider: TranscriptionProvider::default(),
             transcription_language: String::new(),
             whisper_model: WhisperModel::default(),
+            inference_device: InferenceDevice::default(),
             microphone: String::new(),
             adapt_prompt_to_active_app: true,
             sound_feedback: true,

@@ -97,10 +97,11 @@ impl TranscriptionService {
     }
 }
 
-/// Contexto local carregado + qual modelo ele representa (pra saber se
+/// Contexto local carregado + qual modelo e dispositivo ele representa (pra saber se
 /// precisamos recarregar quando o usuário troca em settings).
 struct LoadedModel {
     which: WhisperModel,
+    use_gpu: bool,
     ctx: WhisperContext,
 }
 
@@ -132,6 +133,8 @@ fn transcription_thread_loop<R: Runtime>(
             }
         };
 
+        let use_gpu = cfg_snapshot.should_use_gpu();
+
         match cmd {
             Command::Warmup => {
                 // Só faz sentido pré-carregar se o provider for local — cloud
@@ -140,6 +143,7 @@ fn transcription_thread_loop<R: Runtime>(
                     if let Err(e) = ensure_model_loaded(
                         &app,
                         cfg_snapshot.whisper_model,
+                        use_gpu,
                         &mut loaded,
                         /*emit_status=*/ false,
                     ) {
@@ -156,6 +160,7 @@ fn transcription_thread_loop<R: Runtime>(
                         &app,
                         &wav_path,
                         cfg_snapshot.whisper_model,
+                        use_gpu,
                         &cfg_snapshot.transcription_language,
                         &mut loaded,
                     ),
@@ -206,18 +211,19 @@ fn transcription_thread_loop<R: Runtime>(
     }
 }
 
-/// Garante que `loaded` contém o modelo `wanted` carregado. Se ainda não
-/// existe ou é outro modelo, recarrega. `emit_status=true` emite o evento
+/// Garante que `loaded` contém o modelo `wanted` carregado com a configuração de GPU. Se ainda não
+/// existe ou é outro modelo/dispositivo, recarrega. `emit_status=true` emite o evento
 /// `transcription-status = carregando_modelo` (usado quando a UI espera
 /// feedback — no warmup, silencioso).
 fn ensure_model_loaded<R: Runtime>(
     app: &AppHandle<R>,
     wanted: WhisperModel,
+    use_gpu: bool,
     loaded: &mut Option<LoadedModel>,
     emit_status: bool,
 ) -> Result<()> {
     let needs_reload = match loaded {
-        Some(l) => l.which != wanted,
+        Some(l) => l.which != wanted || l.use_gpu != use_gpu,
         None => true,
     };
     if !needs_reload {
@@ -226,23 +232,28 @@ fn ensure_model_loaded<R: Runtime>(
     if emit_status {
         let _ = app.emit("transcription-status", "carregando_modelo");
     }
-    let ctx = load_local_model(app, wanted)?;
-    *loaded = Some(LoadedModel { which: wanted, ctx });
+    let ctx = load_local_model(app, wanted, use_gpu)?;
+    *loaded = Some(LoadedModel {
+        which: wanted,
+        use_gpu,
+        ctx,
+    });
     Ok(())
 }
 
 // ---------- Modo local ----------
 
 /// Transcreve usando o modelo local, recarregando-o se o usuário mudou de
-/// modelo desde a última transcrição.
+/// modelo ou dispositivo desde a última transcrição.
 fn transcribe_local<R: Runtime>(
     app: &AppHandle<R>,
     wav_path: &Path,
     wanted: WhisperModel,
+    use_gpu: bool,
     language: &str,
     loaded: &mut Option<LoadedModel>,
 ) -> Result<String> {
-    ensure_model_loaded(app, wanted, loaded, /*emit_status=*/ true)?;
+    ensure_model_loaded(app, wanted, use_gpu, loaded, /*emit_status=*/ true)?;
 
     let ctx = &loaded
         .as_ref()
@@ -253,9 +264,12 @@ fn transcribe_local<R: Runtime>(
     transcribe_wav_local(ctx, wav_path, language)
 }
 
-/// Carrega o modelo local do disco. Falha com mensagem amigável se o arquivo
-/// não existe ou se a CPU não tiver suporte a AVX.
-fn load_local_model<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<WhisperContext> {
+/// Carrega o modelo local do disco com os parâmetros de dispositivo (GPU vs CPU).
+fn load_local_model<R: Runtime>(
+    app: &AppHandle<R>,
+    m: WhisperModel,
+    use_gpu: bool,
+) -> Result<WhisperContext> {
     #[cfg(target_arch = "x86_64")]
     {
         if !std::is_x86_feature_detected!("avx") {
@@ -296,7 +310,10 @@ fn load_local_model<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<W
         .to_str()
         .ok_or_else(|| anyhow!("path do modelo tem caracteres inválidos"))?;
 
-    WhisperContext::new_with_params(path_str, WhisperContextParameters::default())
+    let mut params = WhisperContextParameters::default();
+    params.use_gpu(use_gpu);
+
+    WhisperContext::new_with_params(path_str, params)
         .with_context(|| format!("falha ao carregar modelo em {}", path.display()))
 }
 
@@ -548,3 +565,76 @@ fn linear_resample(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
     }
     out
 }
+
+/// Resultado da medição de desempenho da inferência local.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BenchmarkResult {
+    /// Duração da inferência em milissegundos.
+    pub duration_ms: u64,
+    /// Duração do áudio testado em segundos.
+    pub audio_duration_sec: f32,
+    /// Fator de aceleração em relação ao tempo real (ex: 5.0x = 5 vezes mais rápido que o áudio).
+    pub speedup_factor: f32,
+    /// Nome amigável do modelo testado.
+    pub model: String,
+    /// Dispositivo utilizado ("GPU" ou "CPU").
+    pub device_used: String,
+    /// Mensagem amigável com o resumo do teste.
+    pub message: String,
+}
+
+/// Executa um teste rápido de inferência no modelo local atual para medir o desempenho na máquina.
+pub fn run_local_benchmark<R: Runtime>(app: &AppHandle<R>) -> Result<BenchmarkResult> {
+    let cfg = match app.state::<SharedConfig>().lock() {
+        Ok(g) => g.clone(),
+        Err(_) => return Err(anyhow!("mutex de config envenenado")),
+    };
+
+    let use_gpu = cfg.should_use_gpu();
+    let device_used = if use_gpu { "GPU" } else { "CPU" }.to_string();
+    let ctx = load_local_model(app, cfg.whisper_model, use_gpu)?;
+
+    // Sintetiza 1.5s de áudio 16kHz mono (tom de 440Hz suave)
+    let sample_rate = 16_000;
+    let n_samples = (sample_rate as f32 * 1.5) as usize;
+    let mut audio = Vec::with_capacity(n_samples);
+    for i in 0..n_samples {
+        let t = i as f32 / sample_rate as f32;
+        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.08;
+        audio.push(s);
+    }
+
+    let start = std::time::Instant::now();
+    let mut state = ctx.create_state().context("falha ao criar state do whisper")?;
+    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    params.set_print_progress(false);
+    params.set_print_special(false);
+    params.set_print_realtime(false);
+    params.set_print_timestamps(false);
+    params.set_suppress_blank(true);
+    params.set_n_threads(4);
+
+    state
+        .full(params, &audio)
+        .context("falha durante a execução do benchmark")?;
+    let duration = start.elapsed();
+    let duration_ms = duration.as_millis() as u64;
+    let audio_duration_sec = 1.5f32;
+    let duration_secs = duration.as_secs_f32().max(0.001);
+    let speedup_factor = audio_duration_sec / duration_secs;
+
+    let message = format!(
+        "Inferência concluída em {}ms ({:.1}x tempo real) via {}.",
+        duration_ms, speedup_factor, device_used
+    );
+
+    Ok(BenchmarkResult {
+        duration_ms,
+        audio_duration_sec,
+        speedup_factor,
+        model: cfg.whisper_model.meta().display_name.to_string(),
+        device_used,
+        message,
+    })
+}
+

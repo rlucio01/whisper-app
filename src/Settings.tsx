@@ -17,6 +17,33 @@ type VisualIndicator = "none" | "floating" | "tray" | "both";
 type OverlayPosition = "top" | "bottom";
 type TranscriptionProvider = "local" | "openai_cloud" | "groq_cloud";
 type WhisperModelSlug = "tiny" | "base" | "small" | "medium" | "large_turbo";
+type InferenceDevice = "auto" | "gpu" | "cpu";
+
+interface GpuInfo {
+  name: string;
+  vendor: string;
+  vram_mb: number;
+  shared_ram_mb: number;
+  is_discrete: boolean;
+  recommendation: string;
+}
+
+interface HardwareReport {
+  gpus: GpuInfo[];
+  primary_gpu: GpuInfo | null;
+  recommended_device: string;
+  cpu_cores: number;
+  has_avx: boolean;
+}
+
+interface BenchmarkResult {
+  duration_ms: number;
+  audio_duration_sec: number;
+  speedup_factor: number;
+  model: string;
+  device_used: string;
+  message: string;
+}
 
 interface AppConfig {
   provider: Provider;
@@ -44,6 +71,7 @@ interface AppConfig {
   transcription_provider: TranscriptionProvider;
   transcription_language: string;
   whisper_model: WhisperModelSlug;
+  inference_device?: InferenceDevice;
   microphone: string;
   adapt_prompt_to_active_app: boolean;
   sound_feedback: boolean;
@@ -207,6 +235,10 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
   // o campo de novo. Esse state guarda a intenção explícita do usuário.
   const [customModelMode, setCustomModelMode] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const [hardware, setHardware] = useState<HardwareReport | null>(null);
+  const [benchmarking, setBenchmarking] = useState(false);
+  const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkResult | null>(null);
+  const [benchmarkError, setBenchmarkError] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -225,7 +257,24 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
     invoke<boolean>("is_autostart_enabled")
       .then(setAutostartState)
       .catch(() => setAutostartState(false));
+    invoke<HardwareReport>("get_hardware_info")
+      .then(setHardware)
+      .catch((e) => console.error("Falha ao detectar hardware:", e));
   }, []);
+
+  async function handleRunBenchmark() {
+    setBenchmarking(true);
+    setBenchmarkError(null);
+    setBenchmarkResult(null);
+    try {
+      const res = await invoke<BenchmarkResult>("run_benchmark");
+      setBenchmarkResult(res);
+    } catch (err: any) {
+      setBenchmarkError(String(err));
+    } finally {
+      setBenchmarking(false);
+    }
+  }
 
   async function toggleAutostart(enable: boolean) {
     // Optimistic — se der erro, revertemos.
@@ -559,6 +608,129 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   selected={config.whisper_model}
                   onSelect={(slug) => setConfig({ ...config, whisper_model: slug })}
                 />
+              </div>
+            )}
+
+            {config.transcription_provider === "local" && (
+              <div className="settings-card" style={{ marginTop: "1.5rem" }}>
+                <h3 className="card-title">⚡ Aceleração de Hardware & Inferência</h3>
+
+                {hardware?.primary_gpu ? (
+                  <div
+                    className={`hardware-badge ${
+                      hardware.primary_gpu.is_discrete ? "discrete" : "cpu"
+                    }`}
+                  >
+                    <span className="hardware-icon">
+                      {hardware.primary_gpu.is_discrete ? "🎮" : "💻"}
+                    </span>
+                    <div className="hardware-text">
+                      <span className="hardware-title">
+                        {hardware.primary_gpu.name} ({hardware.primary_gpu.vendor})
+                      </span>
+                      <span className="hardware-detail">
+                        {hardware.primary_gpu.is_discrete
+                          ? `${hardware.primary_gpu.vram_mb} MB VRAM dedicada • ${hardware.primary_gpu.recommendation}`
+                          : `Gráficos integrados • ${hardware.cpu_cores} núcleos de CPU detectados`}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="hardware-badge cpu">
+                    <span className="hardware-icon">💻</span>
+                    <div className="hardware-text">
+                      <span className="hardware-title">Processador (CPU)</span>
+                      <span className="hardware-detail">
+                        {hardware?.cpu_cores ? `${hardware.cpu_cores} núcleos lógicos` : "Inferência via CPU"} • Instruções AVX ativas
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <section className="field">
+                  <label className="field-label">Dispositivo de execução</label>
+                  <div className="toggle-group">
+                    <button
+                      type="button"
+                      className={`toggle-btn ${(config.inference_device || "auto") === "auto" ? "active" : ""}`}
+                      onClick={() => setConfig({ ...config, inference_device: "auto" })}
+                    >
+                      Automático (Recomendado)
+                    </button>
+                    <button
+                      type="button"
+                      className={`toggle-btn ${config.inference_device === "gpu" ? "active" : ""}`}
+                      onClick={() => setConfig({ ...config, inference_device: "gpu" })}
+                    >
+                      GPU
+                    </button>
+                    <button
+                      type="button"
+                      className={`toggle-btn ${config.inference_device === "cpu" ? "active" : ""}`}
+                      onClick={() => setConfig({ ...config, inference_device: "cpu" })}
+                    >
+                      CPU
+                    </button>
+                  </div>
+                  <p className="field-hint">
+                    {(config.inference_device || "auto") === "auto"
+                      ? hardware?.recommended_device === "gpu"
+                        ? "Modo automático: GPU dedicada detectada e ativada para máxima velocidade."
+                        : "Modo automático: processador (CPU) selecionado para maior estabilidade."
+                      : config.inference_device === "gpu"
+                      ? "Forçando aceleração por GPU para a execução do modelo Whisper."
+                      : "Forçando execução puramente pelo processador (CPU)."}
+                  </p>
+                </section>
+
+                <div className="benchmark-box">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>⏱️ Medição de Desempenho Local</div>
+                      <div style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.6)", marginTop: "0.15rem" }}>
+                        Mede a velocidade real de transcrição no seu computador.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={handleRunBenchmark}
+                      disabled={benchmarking}
+                      style={{ fontSize: "0.8rem", padding: "0.35rem 0.85rem", whiteSpace: "nowrap" }}
+                    >
+                      {benchmarking ? "Medindo…" : "Testar Desempenho"}
+                    </button>
+                  </div>
+
+                  {benchmarkError && (
+                    <p className="field-hint" style={{ color: "#ef4444", marginTop: "0.6rem" }}>
+                      ⚠️ {benchmarkError}
+                    </p>
+                  )}
+
+                  {benchmarkResult && (
+                    <div className="benchmark-metrics">
+                      <div className="benchmark-metric-item">
+                        <div className={`benchmark-metric-val ${benchmarkResult.device_used === "GPU" ? "gpu" : ""}`}>
+                          {benchmarkResult.duration_ms} ms
+                        </div>
+                        <div className="benchmark-metric-lbl">Tempo de inferência</div>
+                      </div>
+                      <div className="benchmark-metric-item">
+                        <div className={`benchmark-metric-val ${benchmarkResult.device_used === "GPU" ? "gpu" : ""}`}>
+                          {benchmarkResult.speedup_factor.toFixed(1)}x
+                        </div>
+                        <div className="benchmark-metric-lbl">Velocidade real-time</div>
+                      </div>
+                      <div className="benchmark-metric-item">
+                        <div className={`benchmark-metric-val ${benchmarkResult.device_used === "GPU" ? "gpu" : ""}`}>
+                          {benchmarkResult.device_used}
+                        </div>
+                        <div className="benchmark-metric-lbl">Dispositivo ativo</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

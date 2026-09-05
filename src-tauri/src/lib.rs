@@ -13,6 +13,7 @@ mod active_app;
 mod audio;
 mod commands;
 mod config;
+mod hardware;
 mod history;
 mod hotkey;
 mod insert;
@@ -201,6 +202,8 @@ pub fn run() {
             commands::cancel_recording,
             commands::confirm_recording,
             commands::set_tray_update_available,
+            commands::get_hardware_info,
+            commands::run_benchmark,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o app Tauri");

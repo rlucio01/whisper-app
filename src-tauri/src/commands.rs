@@ -218,3 +218,18 @@ pub fn set_tray_update_available<R: Runtime>(
     crate::update_tray_status(&app, version.as_deref())
         .map_err(|e| format!("falha ao atualizar indicador da bandeja: {:#}", e))
 }
+
+/// Retorna o relatório de hardware e GPUs detectadas no computador.
+#[tauri::command]
+pub fn get_hardware_info() -> crate::hardware::HardwareReport {
+    crate::hardware::detect_hardware()
+}
+
+/// Executa um teste rápido de inferência no modelo local atual e retorna métricas de velocidade.
+#[tauri::command]
+pub fn run_benchmark<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<crate::transcription::BenchmarkResult, String> {
+    crate::transcription::run_local_benchmark(&app).map_err(|e| format!("{:#}", e))
+}
+
