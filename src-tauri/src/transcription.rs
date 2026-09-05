@@ -254,8 +254,19 @@ fn transcribe_local<R: Runtime>(
 }
 
 /// Carrega o modelo local do disco. Falha com mensagem amigável se o arquivo
-/// não existe — o usuário precisa ir em settings e baixar.
+/// não existe ou estiver corrompido, ou se a CPU não tiver suporte a AVX.
 fn load_local_model<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<WhisperContext> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if !std::is_x86_feature_detected!("avx") {
+            return Err(anyhow!(
+                "Esta CPU não suporta instruções AVX (processador antigo ou máquina virtual).\n\
+                 O modelo local do Whisper exige AVX e não pode rodar nesta máquina.\n\
+                 Por favor, use a transcrição por Nuvem (Groq ou OpenAI em Configurações)."
+            ));
+        }
+    }
+
     let path = models::file_path(app, m)?;
     let meta = m.meta();
 
@@ -266,6 +277,18 @@ fn load_local_model<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<W
              (arquivo esperado: {})",
             meta.display_name,
             path.display()
+        ));
+    }
+
+    let file_len = path.metadata().map(|m| m.len()).unwrap_or(0);
+    let min_expected = (meta.size_mb as u64 * 1024 * 1024 * 6) / 10;
+    if file_len < min_expected {
+        return Err(anyhow!(
+            "O arquivo do modelo \"{}\" parece incompleto ou corrompido (tamanho: {} MB, esperado: ~{} MB).\n\
+             Vá em Configurações → Transcrição, apague o modelo e baixe novamente.",
+            meta.display_name,
+            file_len / (1024 * 1024),
+            meta.size_mb
         ));
     }
 
@@ -292,12 +315,19 @@ fn transcribe_wav_local(ctx: &WhisperContext, wav_path: &Path, language: &str) -
     params.set_print_special(false);
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
-    // whisper.cpp por padrão usa só min(4, núcleos) threads — em CPUs com
-    // mais de 4 núcleos isso deixa a maior parte ociosa. Usamos todos os
-    // núcleos lógicos disponíveis.
-    let n_threads = std::thread::available_parallelism()
+    params.set_suppress_blank(true);
+
+    // Em GGML / whisper.cpp, o desempenho ideal em CPUs desktop fica entre 4 e 8 threads.
+    // Usar mais do que 8 threads lógicos (especialmente hyperthreads) degrada
+    // drasticamente a performance devido à contenção de cache L2/L3 e barramento de memória.
+    let available = std::thread::available_parallelism()
         .map(|n| n.get() as i32)
         .unwrap_or(4);
+    let n_threads = if available > 8 {
+        (available / 2).clamp(4, 8)
+    } else {
+        available.clamp(2, 6)
+    };
     params.set_n_threads(n_threads);
 
     state

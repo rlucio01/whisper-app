@@ -65,6 +65,7 @@ if ($mode -eq "build") {
         # `TAURI_SIGNING_PRIVATE_KEY_PATH` sozinha é ignorada pelo bundler.
         $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw $UpdaterKeyPath
         $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+        $env:CI = "true"
         Write-Host "==> Assinando com a chave do updater ($UpdaterKeyPath)" -ForegroundColor Cyan
     } else {
         Write-Host "==> AVISO: chave de assinatura do updater não encontrada em $UpdaterKeyPath" -ForegroundColor Yellow

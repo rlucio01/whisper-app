@@ -243,7 +243,10 @@ function App() {
       {formattedText && (
         <section className="transcript">
           <div className="transcript-header">
-            <p className="label">Resultado:</p>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <p className="label">Resultado:</p>
+              {copyMsg && <span className="copy-badge">{copyMsg}</span>}
+            </div>
             <button
               className="icon-btn"
               onClick={copyResult}
@@ -254,7 +257,6 @@ function App() {
             </button>
           </div>
           <p className="transcript-text">{formattedText}</p>
-          {copyMsg && <p className="field-hint">{copyMsg}</p>}
         </section>
       )}
 

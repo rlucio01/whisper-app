@@ -324,6 +324,11 @@ pub struct AppConfig {
     /// ícone do tray. Padrão `false` (mantém o comportamento atual).
     #[serde(default)]
     pub start_minimized: bool,
+
+    /// Se `true`, muta temporariamente o áudio principal do Windows durante a gravação
+    /// para evitar que sons tocando na máquina (música, vídeos, chamadas) vazem no microfone.
+    #[serde(default)]
+    pub mute_audio_while_recording: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -392,6 +397,7 @@ impl Default for AppConfig {
             sound_feedback: true,
             skip_llm_formatting: false,
             start_minimized: false,
+            mute_audio_while_recording: false,
         }
     }
 }

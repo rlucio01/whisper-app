@@ -5503,6 +5503,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "whisper-rs",
+ "windows 0.61.3",
  "windows-sys 0.60.2",
 ]
 

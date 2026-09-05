@@ -100,6 +100,7 @@ struct Recording {
     samples: Arc<Mutex<Vec<f32>>>,
     sample_rate: u32,
     channels: u16,
+    _muter: Option<crate::system_audio::WindowsAudioMuter>,
 }
 
 /// Loop principal da thread de áudio.
@@ -120,25 +121,40 @@ fn audio_thread_loop<R: Runtime>(cmd_rx: mpsc::Receiver<Command>, app: AppHandle
                     // Ignora Start duplicado (usuário martelou o hotkey).
                     continue;
                 }
-                // Snapshot do device escolhido em settings. Vazio = default do SO.
-                let device_name = app
+                // Snapshot das preferências do usuário em settings.
+                let (device_name, mute_system_audio) = app
                     .try_state::<SharedConfig>()
-                    .and_then(|s| s.lock().ok().map(|g| g.microphone.clone()))
+                    .and_then(|s| {
+                        s.lock().ok().map(|g| (g.microphone.clone(), g.mute_audio_while_recording))
+                    })
                     .unwrap_or_default();
+
+                let muter = if mute_system_audio {
+                    crate::system_audio::WindowsAudioMuter::mute()
+                } else {
+                    None
+                };
+
                 match start_recording(&device_name) {
-                    Ok(r) => {
+                    Ok(mut r) => {
+                        r._muter = muter;
                         recording = Some(r);
                     }
                     Err(e) => {
+                        drop(muter);
                         let _ = app.emit("recording-error", format!("{:#}", e));
                     }
                 }
             }
             Ok(Command::Stop) => {
-                let Some(r) = recording.take() else {
+                let Some(mut r) = recording.take() else {
                     // Stop sem Start prévio, ignora.
                     continue;
                 };
+                // Restaura o som do sistema imediatamente ao soltar a tecla de gravação
+                if let Some(mut m) = r._muter.take() {
+                    m.restore();
+                }
                 match finalize_recording(r) {
                     Ok(path) => {
                         let _ = app
@@ -160,7 +176,10 @@ fn audio_thread_loop<R: Runtime>(cmd_rx: mpsc::Receiver<Command>, app: AppHandle
                 // Dropar `recording` para o stream (via Drop de `_stream`) e
                 // descarta os samples acumulados — nada é escrito em disco,
                 // nada é transcrito.
-                if recording.take().is_some() {
+                if let Some(mut r) = recording.take() {
+                    if let Some(mut m) = r._muter.take() {
+                        m.restore();
+                    }
                     let _ = app.emit("recording-cancelled", ());
                     visual::set(&app, visual::State::Idle);
                 }
@@ -283,6 +302,7 @@ fn start_recording(device_name: &str) -> Result<Recording> {
         samples,
         sample_rate,
         channels,
+        _muter: None,
     })
 }
 

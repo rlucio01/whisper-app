@@ -20,6 +20,7 @@ mod llm;
 mod modkey;
 mod models;
 mod sound;
+mod system_audio;
 mod transcription;
 mod visual;
 

@@ -49,6 +49,7 @@ interface AppConfig {
   sound_feedback: boolean;
   skip_llm_formatting: boolean;
   start_minimized: boolean;
+  mute_audio_while_recording: boolean;
 }
 
 interface ModelStatus {
@@ -227,570 +228,715 @@ export default function Settings({ onBack, updater }: SettingsProps) {
     }
   }
 
+  type SettingsTab =
+    | "audio"
+    | "hotkeys"
+    | "transcription"
+    | "llm"
+    | "overlay"
+    | "updates";
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
+
   return (
     <div className="settings">
       <header className="settings-header">
-        <button className="btn-link" onClick={onBack}>
-          ← Voltar
-        </button>
-        <h2>Configurações</h2>
-      </header>
-
-      <section className="field">
-        <label className="field-label" htmlFor="provider">
-          Provedor de LLM
-        </label>
-        <select
-          id="provider"
-          className="text-input"
-          value={config.provider}
-          onChange={(e) => {
-            const newProvider = e.target.value as Provider;
-            // Ao trocar de provider, o modelo salvo raramente faz sentido no
-            // novo — limpamos pra cair no default do provider escolhido.
-            setConfig({ ...config, provider: newProvider, llm_model: "" });
-            setCustomModelMode(false);
-          }}
-        >
-          {(Object.keys(PROVIDER_LABELS) as Provider[]).map((p) => (
-            <option key={p} value={p}>
-              {PROVIDER_LABELS[p]}
-            </option>
-          ))}
-        </select>
-      </section>
-
-      <section className="field">
-        <label className="field-label" htmlFor="apikey">
-          Chave da API ({providerLabel})
-        </label>
-        <input
-          id="apikey"
-          type="password"
-          className="text-input"
-          placeholder={API_KEY_PLACEHOLDER[config.provider]}
-          value={getApiKey(config, config.provider)}
-          onChange={(e) => setConfig(setApiKey(config, config.provider, e.target.value))}
-        />
-        <p className="field-hint">
-          Deixe em branco para desativar (o app mostra só a transcrição bruta,
-          sem formatação). Pegue sua chave em{" "}
-          <a
-            href={API_KEY_HELP_URL[config.provider]}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {API_KEY_HELP_URL[config.provider]}
-          </a>
-          .
-        </p>
-      </section>
-
-      <section className="field">
-        <label className="field-label" htmlFor="model">
-          Modelo
-        </label>
-        <select
-          id="model"
-          className="text-input"
-          value={customModelMode ? "__custom" : config.llm_model}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === "__custom") {
-              // Ao mudar pra custom, semeia com o default do provider pra o
-              // usuário ter algo de onde partir a edição.
-              setCustomModelMode(true);
-              setConfig({ ...config, llm_model: DEFAULT_MODEL_OF(config.provider) });
-            } else {
-              // "" = usar default do backend; qualquer curated fica literal.
-              setCustomModelMode(false);
-              setConfig({ ...config, llm_model: v });
-            }
-          }}
-        >
-          <option value="">Padrão ({DEFAULT_MODEL_OF(config.provider)})</option>
-          {curated.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-          <option value="__custom">Personalizado…</option>
-        </select>
-        {customModelMode && (
-          <input
-            type="text"
-            className="text-input"
-            style={{ marginTop: "0.5rem" }}
-            placeholder={DEFAULT_MODEL_OF(config.provider)}
-            value={config.llm_model}
-            onChange={(e) => setConfig({ ...config, llm_model: e.target.value })}
-          />
-        )}
-      </section>
-
-      <section className="field">
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={config.skip_llm_formatting}
-            onChange={(e) =>
-              setConfig({ ...config, skip_llm_formatting: e.target.checked })
-            }
-          />
-          <span>Não reformatar — colar a transcrição bruta</span>
-        </label>
-        <p className="field-hint">
-          Pula a chamada de LLM e cola exatamente o que foi transcrito, sem
-          corrigir pontuação/hesitações. Mais rápido, mas sem reformatação
-          nem tradução automática. A chave de API acima continua salva —
-          basta desmarcar pra voltar a usar o LLM.
-        </p>
-      </section>
-
-      <section className="field">
-        <label className="field-label">Transcrição</label>
-        <div className="toggle-group">
-          <button
-            className={`toggle-btn ${config.transcription_provider === "local" ? "active" : ""}`}
-            onClick={() =>
-              setConfig({ ...config, transcription_provider: "local" })
-            }
-          >
-            Local (offline)
+        <div className="settings-header-left">
+          <button className="btn-link" onClick={onBack}>
+            ← Voltar
           </button>
-          <button
-            className={`toggle-btn ${config.transcription_provider === "openai_cloud" ? "active" : ""}`}
-            onClick={() =>
-              setConfig({
-                ...config,
-                transcription_provider: "openai_cloud",
-              })
-            }
-          >
-            OpenAI (cloud)
-          </button>
-          <button
-            className={`toggle-btn ${config.transcription_provider === "groq_cloud" ? "active" : ""}`}
-            onClick={() =>
-              setConfig({
-                ...config,
-                transcription_provider: "groq_cloud",
-              })
-            }
-          >
-            Groq (cloud)
+          <h2>Configurações</h2>
+        </div>
+        <div className="settings-header-actions">
+          {message && (
+            <span
+              className={`settings-saved-badge ${message.startsWith("Erro") ? "settings-badge-error" : ""}`}
+            >
+              {message}
+            </span>
+          )}
+          <button className="btn-primary" onClick={save} disabled={saving}>
+            {saving ? "Salvando…" : "Salvar"}
           </button>
         </div>
-        <label className="field-label" htmlFor="transcription-language">
-          Idioma da fala
-        </label>
-        <select
-          id="transcription-language"
-          className="text-input"
-          value={config.transcription_language}
-          onChange={(e) =>
-            setConfig({ ...config, transcription_language: e.target.value })
-          }
+      </header>
+
+      <nav className="settings-tabs" aria-label="Abas de configurações">
+        <button
+          type="button"
+          className={`settings-tab-btn ${activeTab === "audio" ? "active" : ""}`}
+          onClick={() => setActiveTab("audio")}
         >
-          <option value="">Detectar automaticamente</option>
-          <option value="pt">Português</option>
-          <option value="en">Inglês</option>
-          <option value="es">Espanhol</option>
-          <option value="fr">Francês</option>
-          <option value="de">Alemão</option>
-          <option value="it">Italiano</option>
-          <option value="ja">Japonês</option>
-        </select>
-        <p className="field-hint">
-          Em “Detectar automaticamente”, o comportamento é o mesmo das versões
-          anteriores. Defina o idioma para melhorar a precisão em ditados de um
-          único idioma.
-        </p>
-        {config.transcription_provider === "local" && (
-          <ModelPicker
-            selected={config.whisper_model}
-            onSelect={(slug) => setConfig({ ...config, whisper_model: slug })}
-          />
-        )}
-        {config.transcription_provider === "openai_cloud" && (
-          <>
-            <input
-              type="password"
-              className="text-input"
-              placeholder="sk-... ou sk-proj-..."
-              value={config.openai_api_key}
-              onChange={(e) =>
-                setConfig({ ...config, openai_api_key: e.target.value })
-              }
-              style={{ marginTop: "0.5rem" }}
-            />
-            <p className="field-hint">
-              O áudio é enviado para a API da OpenAI (modelo{" "}
-              <code>whisper-1</code>). Essa chave é a mesma usada se você
-              escolher "OpenAI" como provedor de LLM acima. Nada fica no seu
-              disco, mas precisa de internet. Pegue a sua em{" "}
-              <a
-                href={API_KEY_HELP_URL.openai}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {API_KEY_HELP_URL.openai}
-              </a>
-              .
-            </p>
-          </>
-        )}
-        {config.transcription_provider === "groq_cloud" && (
-          <>
-            <input
-              type="password"
-              className="text-input"
-              placeholder="gsk_..."
-              value={config.groq_api_key}
-              onChange={(e) =>
-                setConfig({ ...config, groq_api_key: e.target.value })
-              }
-              style={{ marginTop: "0.5rem" }}
-            />
-            <p className="field-hint">
-              O áudio é enviado para a API do Groq (modelo{" "}
-              <code>whisper-large-v3-turbo</code>), que roda em hardware
-              dedicado (LPU) e costuma ser bem mais rápido que a OpenAI pra
-              ditados curtos. Essa chave é a mesma usada se você escolher
-              "Groq" como provedor de LLM acima. Pegue a sua em{" "}
-              <a
-                href="https://console.groq.com/keys"
-                target="_blank"
-                rel="noreferrer"
-              >
-                console.groq.com/keys
-              </a>
-              .
-            </p>
-          </>
-        )}
-      </section>
-
-      <MicrophonePicker
-        selected={config.microphone}
-        onSelect={(name) => setConfig({ ...config, microphone: name })}
-      />
-
-      <section className="field">
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={config.adapt_prompt_to_active_app}
-            onChange={(e) =>
-              setConfig({
-                ...config,
-                adapt_prompt_to_active_app: e.target.checked,
-              })
-            }
-          />
-          <span>Adaptar reformatação ao app em foco</span>
-        </label>
-        <p className="field-hint">
-          Ao pressionar o atalho, o Whisper App detecta o app onde você vai
-          colar (Slack, Outlook, VS Code, etc.) e passa isso como contexto pro
-          LLM — o tom da reformatação fica mais adequado. Nenhum dado do app é
-          enviado pra fora além do nome do executável e do título da janela.
-        </p>
-      </section>
-
-      <section className="field">
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={config.sound_feedback}
-            onChange={(e) =>
-              setConfig({
-                ...config,
-                sound_feedback: e.target.checked,
-              })
-            }
-          />
-          <span>Beep sonoro ao começar e terminar</span>
-        </label>
-        <p className="field-hint">
-          Toca um bipe curto ao iniciar a gravação e outro quando o texto
-          termina de ser colado — feedback útil quando o app está no tray.
-          <button
-            type="button"
-            className="btn-link"
-            onClick={() => {
-              playBeep("start");
-              setTimeout(() => playBeep("end"), 400);
-            }}
-          >
-            testar sons
-          </button>
-        </p>
-      </section>
-
-      <section className="field">
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={config.translate.enabled}
-            onChange={(e) =>
-              setConfig({
-                ...config,
-                translate: { ...config.translate, enabled: e.target.checked },
-              })
-            }
-          />
-          <span>Traduzir automaticamente</span>
-        </label>
-        {config.translate.enabled && config.skip_llm_formatting && (
-          <p className="field-hint">
-            Sem efeito enquanto "Não reformatar" (acima) estiver marcado — a
-            tradução depende do LLM.
-          </p>
-        )}
-        {config.translate.enabled && (
-          <div className="translate-target">
-            <label className="field-label" htmlFor="lang">
-              Idioma alvo (código ISO)
-            </label>
-            <input
-              id="lang"
-              type="text"
-              className="text-input text-input-small"
-              placeholder="en"
-              value={config.translate.target_language}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  translate: {
-                    ...config.translate,
-                    target_language: e.target.value,
-                  },
-                })
-              }
-            />
-            <p className="field-hint">
-              Ex: <code>en</code>, <code>es</code>, <code>fr</code>,{" "}
-              <code>de</code>, <code>ja</code>.
-            </p>
-          </div>
-        )}
-      </section>
-
-      <section className="field">
-        <label className="field-label">Atalho global (push-to-talk)</label>
-        <HotkeyCapture
-          value={config.hotkey}
-          onChange={(hk) => setConfig({ ...config, hotkey: hk })}
-        />
-        <p className="field-hint">
-          Clique em <strong>Alterar</strong> e pressione a combinação desejada
-          (ex: <code>F9</code>, <code>Ctrl+Shift+Space</code>,{" "}
-          <code>Alt+Space</code> ou <code>Ctrl+Windows</code>). Só passa a
-          valer depois de <strong>Salvar</strong>.
-        </p>
-      </section>
-
-      <section className="field">
-        <label className="field-label">Atalho hands-free (opcional)</label>
-        <HotkeyCapture
-          value={config.hands_free_hotkey}
-          onChange={(hk) => setConfig({ ...config, hands_free_hotkey: hk })}
-          placeholder="Desativado"
-          onClear={() => setConfig({ ...config, hands_free_hotkey: "" })}
-        />
-        <p className="field-hint">
-          Toque uma vez pra começar a gravar, toque de novo pra parar — sem
-          precisar segurar. Útil pra ditados longos. Precisa ser diferente do
-          atalho push-to-talk acima. Deixe desativado se não for usar.
-        </p>
-      </section>
-
-      <section className="field">
-        <label className="field-label">Atalho de recolar (opcional)</label>
-        <HotkeyCapture
-          value={config.repaste_hotkey}
-          onChange={(hk) => setConfig({ ...config, repaste_hotkey: hk })}
-          placeholder="Desativado"
-          onClear={() => setConfig({ ...config, repaste_hotkey: "" })}
-        />
-        <p className="field-hint">
-          Cola de novo a última transcrição no app ativo, sem precisar
-          regravar. Também funciona logo após abrir o app, usando a entrada
-          mais recente do histórico. Precisa ser diferente dos outros dois
-          atalhos acima.
-        </p>
-      </section>
-
-      <section className="field">
-        <label className="field-label" htmlFor="visual">
-          Indicador visual durante a gravação
-        </label>
-        <select
-          id="visual"
-          className="text-input"
-          value={config.visual_indicator}
-          onChange={(e) =>
-            setConfig({
-              ...config,
-              visual_indicator: e.target.value as VisualIndicator,
-            })
-          }
-        >
-          <option value="both">Barra flutuante + ícone da bandeja</option>
-          <option value="floating">Só barra flutuante</option>
-          <option value="tray">Só ícone da bandeja</option>
-          <option value="none">Desativado</option>
-        </select>
-        <p className="field-hint">
-          A barra flutuante fica sempre no topo, útil quando outros apps cobrem
-          a janela. O ícone da bandeja muda de cor durante o pipeline.
-        </p>
-      </section>
-
-      {(config.visual_indicator === "floating" ||
-        config.visual_indicator === "both") && (
-        <section className="field">
-          <label className="field-label">Aparência da barra flutuante</label>
-
-          <div className="overlay-custom-row">
-            <label className="field-label" htmlFor="overlay-position">
-              Posição
-            </label>
-            <select
-              id="overlay-position"
-              className="text-input"
-              value={config.overlay.position}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  overlay: {
-                    ...config.overlay,
-                    position: e.target.value as OverlayPosition,
-                  },
-                })
-              }
-            >
-              <option value="bottom">Fundo da tela</option>
-              <option value="top">Topo da tela</option>
-            </select>
-          </div>
-
-          <div className="overlay-custom-row">
-            <label className="field-label" htmlFor="overlay-scale">
-              Tamanho ({Math.round(config.overlay.scale * 100)}%)
-            </label>
-            <input
-              id="overlay-scale"
-              type="range"
-              min={0.75}
-              max={1.75}
-              step={0.05}
-              value={config.overlay.scale}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  overlay: { ...config.overlay, scale: Number(e.target.value) },
-                })
-              }
-            />
-          </div>
-
-          <div className="overlay-custom-row">
-            <label className="field-label" htmlFor="overlay-opacity">
-              Opacidade ({Math.round(config.overlay.opacity * 100)}%)
-            </label>
-            <input
-              id="overlay-opacity"
-              type="range"
-              min={0.3}
-              max={1}
-              step={0.05}
-              value={config.overlay.opacity}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  overlay: { ...config.overlay, opacity: Number(e.target.value) },
-                })
-              }
-            />
-          </div>
-
-          <div className="overlay-custom-row">
-            <label className="field-label" htmlFor="overlay-accent">
-              Cor de destaque
-            </label>
-            <input
-              id="overlay-accent"
-              type="color"
-              className="overlay-color-input"
-              value={config.overlay.accent_color}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  overlay: { ...config.overlay, accent_color: e.target.value },
-                })
-              }
-            />
-          </div>
-
-          <p className="field-hint">
-            Posição e tamanho valem a partir da próxima gravação; opacidade e
-            cor atualizam a barra na hora, mesmo com ela escondida.
-          </p>
-        </section>
-      )}
-
-      <section className="field">
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={autostart ?? false}
-            disabled={autostart === null}
-            onChange={(e) => toggleAutostart(e.target.checked)}
-          />
-          <span>Iniciar automaticamente com o Windows</span>
-        </label>
-        <p className="field-hint">
-          O app sobe direto pro tray no login — o atalho fica disponível sem
-          você precisar abrir manualmente. Essa opção não passa pelo botão
-          Salvar: já vale ao clicar.
-        </p>
-      </section>
-
-      <section className="field">
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={config.start_minimized}
-            onChange={(e) =>
-              setConfig({ ...config, start_minimized: e.target.checked })
-            }
-          />
-          <span>Iniciar apenas na bandeja do sistema</span>
-        </label>
-        <p className="field-hint">
-          Ao abrir o app (manualmente ou junto com o Windows), a janela
-          principal fica escondida — só o ícone na bandeja aparece. O atalho
-          de ditado continua funcionando normalmente.
-        </p>
-      </section>
-
-      <UpdateSection updater={updater} />
-
-      {message && <p className="settings-msg">{message}</p>}
-
-      <section className="actions">
-        <button className="btn-primary" onClick={save} disabled={saving}>
-          {saving ? "Salvando…" : "Salvar"}
+          <span className="tab-icon">🎙️</span> Áudio & Sistema
         </button>
         <button
-          className="btn-secondary"
-          onClick={() => invoke("open_config_folder")}
+          type="button"
+          className={`settings-tab-btn ${activeTab === "hotkeys" ? "active" : ""}`}
+          onClick={() => setActiveTab("hotkeys")}
         >
-          Abrir pasta do config
+          <span className="tab-icon">⌨️</span> Atalhos
         </button>
-      </section>
+        <button
+          type="button"
+          className={`settings-tab-btn ${activeTab === "transcription" ? "active" : ""}`}
+          onClick={() => setActiveTab("transcription")}
+        >
+          <span className="tab-icon">🗣️</span> Transcrição
+        </button>
+        <button
+          type="button"
+          className={`settings-tab-btn ${activeTab === "llm" ? "active" : ""}`}
+          onClick={() => setActiveTab("llm")}
+        >
+          <span className="tab-icon">✨</span> IA & Tradução
+        </button>
+        <button
+          type="button"
+          className={`settings-tab-btn ${activeTab === "overlay" ? "active" : ""}`}
+          onClick={() => setActiveTab("overlay")}
+        >
+          <span className="tab-icon">🪟</span> Barra Flutuante
+        </button>
+        <button
+          type="button"
+          className={`settings-tab-btn ${activeTab === "updates" ? "active" : ""}`}
+          onClick={() => setActiveTab("updates")}
+        >
+          <span className="tab-icon">🚀</span> Atualizações
+        </button>
+      </nav>
+
+      {activeTab === "audio" && (
+        <div className="settings-tab-content">
+          <div className="settings-card">
+            <h3 className="card-title">🎙️ Entrada de Áudio & Microfone</h3>
+            <MicrophonePicker
+              selected={config.microphone}
+              onSelect={(name) => setConfig({ ...config, microphone: name })}
+            />
+
+            <section className="field" style={{ marginTop: "1.25rem" }}>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={config.mute_audio_while_recording}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      mute_audio_while_recording: e.target.checked,
+                    })
+                  }
+                />
+                <span>Silenciar áudio do sistema ao ditar</span>
+              </label>
+              <p className="field-hint">
+                Muta automaticamente o som do Windows (músicas, vídeos ou chamadas)
+                enquanto você estiver gravando para evitar que ruídos externos
+                atrapalhem a transcrição. O som volta ao normal no instante em que
+                você solta a tecla ou conclui o ditado.
+              </p>
+            </section>
+
+            <section className="field" style={{ marginTop: "1rem" }}>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={config.sound_feedback}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      sound_feedback: e.target.checked,
+                    })
+                  }
+                />
+                <span>Beep sonoro ao começar e terminar</span>
+              </label>
+              <p className="field-hint">
+                Toca um bipe curto ao iniciar a gravação e outro quando o texto
+                termina de ser colado — feedback útil quando o app está no tray.{" "}
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => {
+                    playBeep("start");
+                    setTimeout(() => playBeep("end"), 400);
+                  }}
+                >
+                  testar sons
+                </button>
+              </p>
+            </section>
+          </div>
+
+          <div className="settings-card">
+            <h3 className="card-title">🖥️ Inicialização do Sistema</h3>
+            <section className="field">
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={autostart ?? false}
+                  disabled={autostart === null}
+                  onChange={(e) => toggleAutostart(e.target.checked)}
+                />
+                <span>Iniciar automaticamente com o Windows</span>
+              </label>
+              <p className="field-hint">
+                O app sobe direto pro tray no login — o atalho fica disponível sem
+                você precisar abrir manualmente. Essa opção não passa pelo botão
+                Salvar: já vale ao clicar.
+              </p>
+            </section>
+
+            <section className="field" style={{ marginTop: "1rem" }}>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={config.start_minimized}
+                  onChange={(e) =>
+                    setConfig({ ...config, start_minimized: e.target.checked })
+                  }
+                />
+                <span>Iniciar apenas na bandeja do sistema</span>
+              </label>
+              <p className="field-hint">
+                Ao abrir o app (manualmente ou junto com o Windows), a janela
+                principal fica escondida — só o ícone na bandeja aparece. O atalho
+                de ditado continua funcionando normalmente.
+              </p>
+            </section>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "hotkeys" && (
+        <div className="settings-tab-content">
+          <div className="settings-card">
+            <h3 className="card-title">⌨️ Atalhos do Teclado</h3>
+            <section className="field">
+              <label className="field-label">Atalho global (push-to-talk)</label>
+              <HotkeyCapture
+                value={config.hotkey}
+                onChange={(hk) => setConfig({ ...config, hotkey: hk })}
+              />
+              <p className="field-hint">
+                Segure para gravar e solte para transcrever. Clique em{" "}
+                <strong>Alterar</strong> e pressione a combinação desejada (ex:{" "}
+                <code>F9</code>, <code>Ctrl+Shift+Space</code>, <code>Alt+Space</code>{" "}
+                ou <code>Ctrl+Windows</code>).
+              </p>
+            </section>
+
+            <section className="field" style={{ marginTop: "1.5rem" }}>
+              <label className="field-label">Atalho hands-free (opcional)</label>
+              <HotkeyCapture
+                value={config.hands_free_hotkey}
+                onChange={(hk) => setConfig({ ...config, hands_free_hotkey: hk })}
+                placeholder="Desativado"
+                onClear={() => setConfig({ ...config, hands_free_hotkey: "" })}
+              />
+              <p className="field-hint">
+                Toque uma vez pra começar a gravar, toque de novo pra parar — sem
+                precisar segurar. Útil pra ditados longos. Precisa ser diferente do
+                atalho push-to-talk acima.
+              </p>
+            </section>
+
+            <section className="field" style={{ marginTop: "1.5rem" }}>
+              <label className="field-label">Atalho de recolar (opcional)</label>
+              <HotkeyCapture
+                value={config.repaste_hotkey}
+                onChange={(hk) => setConfig({ ...config, repaste_hotkey: hk })}
+                placeholder="Desativado"
+                onClear={() => setConfig({ ...config, repaste_hotkey: "" })}
+              />
+              <p className="field-hint">
+                Cola de novo a última transcrição no app ativo, sem precisar
+                regravar.
+              </p>
+            </section>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "transcription" && (
+        <div className="settings-tab-content">
+          <div className="settings-card">
+            <h3 className="card-title">🗣️ Motor de Transcrição</h3>
+            <section className="field">
+              <label className="field-label">Provedor</label>
+              <div className="toggle-group">
+                <button
+                  type="button"
+                  className={`toggle-btn ${config.transcription_provider === "local" ? "active" : ""}`}
+                  onClick={() =>
+                    setConfig({ ...config, transcription_provider: "local" })
+                  }
+                >
+                  Local (offline)
+                </button>
+                <button
+                  type="button"
+                  className={`toggle-btn ${config.transcription_provider === "openai_cloud" ? "active" : ""}`}
+                  onClick={() =>
+                    setConfig({
+                      ...config,
+                      transcription_provider: "openai_cloud",
+                    })
+                  }
+                >
+                  OpenAI (cloud)
+                </button>
+                <button
+                  type="button"
+                  className={`toggle-btn ${config.transcription_provider === "groq_cloud" ? "active" : ""}`}
+                  onClick={() =>
+                    setConfig({
+                      ...config,
+                      transcription_provider: "groq_cloud",
+                    })
+                  }
+                >
+                  Groq (cloud)
+                </button>
+              </div>
+            </section>
+
+            <section className="field" style={{ marginTop: "1.25rem" }}>
+              <label className="field-label" htmlFor="transcription-language">
+                Idioma da fala
+              </label>
+              <select
+                id="transcription-language"
+                className="text-input"
+                value={config.transcription_language}
+                onChange={(e) =>
+                  setConfig({ ...config, transcription_language: e.target.value })
+                }
+              >
+                <option value="">Detectar automaticamente</option>
+                <option value="pt">Português</option>
+                <option value="en">Inglês</option>
+                <option value="es">Espanhol</option>
+                <option value="fr">Francês</option>
+                <option value="de">Alemão</option>
+                <option value="it">Italiano</option>
+                <option value="ja">Japonês</option>
+              </select>
+              <p className="field-hint">
+                Defina o idioma para acelerar a transcrição e aumentar a precisão
+                em ditados monolíngues.
+              </p>
+            </section>
+
+            {config.transcription_provider === "local" && (
+              <div style={{ marginTop: "1.5rem" }}>
+                <ModelPicker
+                  selected={config.whisper_model}
+                  onSelect={(slug) => setConfig({ ...config, whisper_model: slug })}
+                />
+              </div>
+            )}
+
+            {config.transcription_provider === "openai_cloud" &&
+              config.provider !== "openai" && (
+                <section className="field" style={{ marginTop: "1.25rem" }}>
+                  <label className="field-label" htmlFor="openai-transcribe-key">
+                    Chave da API OpenAI (para transcrição)
+                  </label>
+                  <input
+                    id="openai-transcribe-key"
+                    type="password"
+                    className="text-input"
+                    placeholder="sk-..."
+                    value={config.openai_api_key}
+                    onChange={(e) =>
+                      setConfig({ ...config, openai_api_key: e.target.value })
+                    }
+                  />
+                  <p className="field-hint">
+                    O áudio é enviado para a API do OpenAI Whisper (<code>whisper-1</code>).
+                  </p>
+                </section>
+              )}
+
+            {config.transcription_provider === "groq_cloud" &&
+              config.provider !== "groq" && (
+                <section className="field" style={{ marginTop: "1.25rem" }}>
+                  <label className="field-label" htmlFor="groq-transcribe-key">
+                    Chave da API do Groq (para transcrição)
+                  </label>
+                  <input
+                    id="groq-transcribe-key"
+                    type="password"
+                    className="text-input"
+                    placeholder="gsk_..."
+                    value={config.groq_api_key}
+                    onChange={(e) =>
+                      setConfig({ ...config, groq_api_key: e.target.value })
+                    }
+                  />
+                  <p className="field-hint">
+                    O áudio é enviado para a API do Groq (modelo{" "}
+                    <code>whisper-large-v3-turbo</code>). Pegue a sua em{" "}
+                    <a
+                      href="https://console.groq.com/keys"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      console.groq.com/keys
+                    </a>.
+                  </p>
+                </section>
+              )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "llm" && (
+        <div className="settings-tab-content">
+          <div className="settings-card">
+            <h3 className="card-title">✨ Pós-processamento com IA</h3>
+            <section className="field">
+              <label className="field-label" htmlFor="provider">
+                Provedor de LLM
+              </label>
+              <select
+                id="provider"
+                className="text-input"
+                value={config.provider}
+                onChange={(e) => {
+                  const newProvider = e.target.value as Provider;
+                  setConfig({ ...config, provider: newProvider, llm_model: "" });
+                  setCustomModelMode(false);
+                }}
+              >
+                {(Object.keys(PROVIDER_LABELS) as Provider[]).map((p) => (
+                  <option key={p} value={p}>
+                    {PROVIDER_LABELS[p]}
+                  </option>
+                ))}
+              </select>
+            </section>
+
+            <section className="field" style={{ marginTop: "1.25rem" }}>
+              <label className="field-label" htmlFor="apikey">
+                Chave da API ({providerLabel})
+              </label>
+              <input
+                id="apikey"
+                type="password"
+                className="text-input"
+                placeholder={API_KEY_PLACEHOLDER[config.provider]}
+                value={getApiKey(config, config.provider)}
+                onChange={(e) =>
+                  setConfig(setApiKey(config, config.provider, e.target.value))
+                }
+              />
+              <p className="field-hint">
+                Deixe em branco para desativar (o app cola só a transcrição bruta).
+                Pegue sua chave em{" "}
+                <a
+                  href={API_KEY_HELP_URL[config.provider]}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {API_KEY_HELP_URL[config.provider]}
+                </a>.
+              </p>
+            </section>
+
+            <section className="field" style={{ marginTop: "1.25rem" }}>
+              <label className="field-label" htmlFor="model">
+                Modelo
+              </label>
+              <select
+                id="model"
+                className="text-input"
+                value={customModelMode ? "__custom" : config.llm_model}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "__custom") {
+                    setCustomModelMode(true);
+                    setConfig({
+                      ...config,
+                      llm_model: DEFAULT_MODEL_OF(config.provider),
+                    });
+                  } else {
+                    setCustomModelMode(false);
+                    setConfig({ ...config, llm_model: v });
+                  }
+                }}
+              >
+                <option value="">
+                  Padrão ({DEFAULT_MODEL_OF(config.provider)})
+                </option>
+                {curated.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+                <option value="__custom">Personalizado…</option>
+              </select>
+              {customModelMode && (
+                <input
+                  type="text"
+                  className="text-input"
+                  style={{ marginTop: "0.5rem" }}
+                  placeholder={DEFAULT_MODEL_OF(config.provider)}
+                  value={config.llm_model}
+                  onChange={(e) =>
+                    setConfig({ ...config, llm_model: e.target.value })
+                  }
+                />
+              )}
+            </section>
+
+            <section className="field" style={{ marginTop: "1.25rem" }}>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={config.adapt_prompt_to_active_app}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      adapt_prompt_to_active_app: e.target.checked,
+                    })
+                  }
+                />
+                <span>Adaptar reformatação ao app em foco</span>
+              </label>
+              <p className="field-hint">
+                Detecta o app ativo onde o texto será colado (Slack, Word, VS Code, etc.)
+                para ajustar o tom e a pontuação automaticamente.
+              </p>
+            </section>
+
+            <section className="field" style={{ marginTop: "1rem" }}>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={config.skip_llm_formatting}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      skip_llm_formatting: e.target.checked,
+                    })
+                  }
+                />
+                <span>Não reformatar — colar a transcrição bruta</span>
+              </label>
+              <p className="field-hint">
+                Pula a chamada de LLM e cola exatamente o que foi transcrito.
+              </p>
+            </section>
+          </div>
+
+          <div className="settings-card">
+            <h3 className="card-title">🌐 Tradução Automática</h3>
+            <section className="field">
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={config.translate.enabled}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      translate: {
+                        ...config.translate,
+                        enabled: e.target.checked,
+                      },
+                    })
+                  }
+                />
+                <span>Traduzir automaticamente</span>
+              </label>
+              {config.translate.enabled && config.skip_llm_formatting && (
+                <p className="field-hint">
+                  Sem efeito enquanto "Não reformatar" estiver marcado.
+                </p>
+              )}
+              {config.translate.enabled && (
+                <div className="translate-target" style={{ marginTop: "0.75rem" }}>
+                  <label className="field-label" htmlFor="lang">
+                    Idioma alvo (código ISO)
+                  </label>
+                  <input
+                    id="lang"
+                    type="text"
+                    className="text-input text-input-small"
+                    placeholder="en"
+                    value={config.translate.target_language}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        translate: {
+                          ...config.translate,
+                          target_language: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                  <p className="field-hint">
+                    Ex: <code>en</code>, <code>es</code>, <code>fr</code>,{" "}
+                    <code>de</code>, <code>ja</code>.
+                  </p>
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "overlay" && (
+        <div className="settings-tab-content">
+          <div className="settings-card">
+            <h3 className="card-title">🪟 Indicador Visual & Barra Flutuante</h3>
+            <section className="field">
+              <label className="field-label" htmlFor="visual">
+                Indicador visual durante a gravação
+              </label>
+              <select
+                id="visual"
+                className="text-input"
+                value={config.visual_indicator}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    visual_indicator: e.target.value as VisualIndicator,
+                  })
+                }
+              >
+                <option value="both">Barra flutuante + ícone da bandeja</option>
+                <option value="floating">Só barra flutuante</option>
+                <option value="tray">Só ícone da bandeja</option>
+                <option value="none">Desativado</option>
+              </select>
+            </section>
+
+            {(config.visual_indicator === "floating" ||
+              config.visual_indicator === "both") && (
+              <section className="field" style={{ marginTop: "1.25rem" }}>
+                <label className="field-label">Personalização da barra</label>
+
+                <div className="overlay-custom-row" style={{ marginTop: "0.75rem" }}>
+                  <label className="field-label" htmlFor="overlay-position">
+                    Posição
+                  </label>
+                  <select
+                    id="overlay-position"
+                    className="text-input"
+                    value={config.overlay.position}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        overlay: {
+                          ...config.overlay,
+                          position: e.target.value as OverlayPosition,
+                        },
+                      })
+                    }
+                  >
+                    <option value="bottom">Fundo da tela</option>
+                    <option value="top">Topo da tela</option>
+                  </select>
+                </div>
+
+                <div className="overlay-custom-row" style={{ marginTop: "1rem" }}>
+                  <label className="field-label" htmlFor="overlay-scale">
+                    Tamanho ({Math.round(config.overlay.scale * 100)}%)
+                  </label>
+                  <input
+                    id="overlay-scale"
+                    type="range"
+                    min={0.75}
+                    max={1.75}
+                    step={0.05}
+                    value={config.overlay.scale}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        overlay: {
+                          ...config.overlay,
+                          scale: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="overlay-custom-row" style={{ marginTop: "1rem" }}>
+                  <label className="field-label" htmlFor="overlay-opacity">
+                    Opacidade ({Math.round(config.overlay.opacity * 100)}%)
+                  </label>
+                  <input
+                    id="overlay-opacity"
+                    type="range"
+                    min={0.3}
+                    max={1}
+                    step={0.05}
+                    value={config.overlay.opacity}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        overlay: {
+                          ...config.overlay,
+                          opacity: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="overlay-custom-row" style={{ marginTop: "1rem" }}>
+                  <label className="field-label" htmlFor="overlay-accent">
+                    Cor de destaque
+                  </label>
+                  <input
+                    id="overlay-accent"
+                    type="color"
+                    className="overlay-color-input"
+                    value={config.overlay.accent_color}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        overlay: {
+                          ...config.overlay,
+                          accent_color: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "updates" && (
+        <div className="settings-tab-content">
+          <div className="settings-card">
+            <h3 className="card-title">🚀 Atualizações & Informações</h3>
+            <UpdateSection updater={updater} />
+
+            <div style={{ marginTop: "1.5rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => invoke("open_config_folder")}
+              >
+                📂 Abrir pasta do config
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <footer className="settings-footer-actions">
+        <button className="btn-primary btn-large" onClick={save} disabled={saving}>
+          {saving ? "Salvando…" : "Salvar Configurações"}
+        </button>
+      </footer>
     </div>
   );
 }

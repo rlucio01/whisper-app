@@ -64,6 +64,11 @@ arboard = "3"
 # são usadas em `modkey.rs` (low-level keyboard hook para atalhos só de
 # modificador, ex: Ctrl+Windows). Só compila no Windows.
 [target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Media_Audio_Endpoints",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+] }
 windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
