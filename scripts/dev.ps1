@@ -47,6 +47,18 @@ $env:PATH = "$CargoBin;$CMakePath\bin;$LlvmPath\bin;$NinjaPath;$env:PATH"
 $env:LIBCLANG_PATH = "$LlvmPath\bin"
 $env:CMAKE_GENERATOR = "Ninja"
 
+# Desativa otimizações específicas da CPU host (AVX2, AVX512, FMA) para garantir
+# que o binário gerado seja portável x86_64 e funcione em qualquer computador
+# sem disparar exceções de instrução ilegal (0xc000001d APPCRASH).
+$env:GGML_NATIVE = "OFF"
+$env:GGML_AVX    = "OFF"
+$env:GGML_AVX2   = "OFF"
+$env:GGML_AVX512 = "OFF"
+$env:GGML_FMA    = "OFF"
+$env:GGML_F16C   = "OFF"
+$env:GGML_BMI2   = "OFF"
+$env:GGML_SSE42  = "OFF"
+
 # 5. Volta para a raiz do projeto (independentemente de onde o script foi chamado).
 Set-Location (Split-Path -Parent $PSScriptRoot)
 

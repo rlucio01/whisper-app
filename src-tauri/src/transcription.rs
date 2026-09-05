@@ -254,18 +254,8 @@ fn transcribe_local<R: Runtime>(
 }
 
 /// Carrega o modelo local do disco. Falha com mensagem amigável se o arquivo
-/// não existe ou estiver corrompido, ou se a CPU não tiver suporte a AVX.
+/// não existe ou estiver corrompido.
 fn load_local_model<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<WhisperContext> {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if !std::is_x86_feature_detected!("avx") {
-            return Err(anyhow!(
-                "Esta CPU não suporta instruções AVX (processador antigo ou máquina virtual).\n\
-                 O modelo local do Whisper exige AVX e não pode rodar nesta máquina.\n\
-                 Por favor, use a transcrição por Nuvem (Groq ou OpenAI em Configurações)."
-            ));
-        }
-    }
 
     let path = models::file_path(app, m)?;
     let meta = m.meta();
