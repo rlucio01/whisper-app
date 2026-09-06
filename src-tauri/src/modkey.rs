@@ -143,6 +143,13 @@ mod imp {
         set_targets(None, None, None);
     }
 
+    /// Sincroniza o estado de PTT ativo caso tenha sido iniciado externamente
+    pub fn mark_ptt_active(active: bool) {
+        if let Ok(mut t) = targets().lock() {
+            t.ptt_active = active;
+        }
+    }
+
     fn vk_to_bit(vk: u32) -> Option<ModSet> {
         match vk as u16 {
             VK_LCONTROL | VK_RCONTROL => Some(CTRL),
@@ -238,7 +245,7 @@ mod imp {
 }
 
 #[cfg(target_os = "windows")]
-pub use imp::{clear_targets, set_targets, start};
+pub use imp::{clear_targets, mark_ptt_active, set_targets, start};
 
 // ---------- macOS/Linux (stub) ----------
 
@@ -251,3 +258,6 @@ pub fn set_targets(_push_to_talk: Option<ModTarget>, _hands_free: Option<ModTarg
 
 #[cfg(not(target_os = "windows"))]
 pub fn clear_targets() {}
+
+#[cfg(not(target_os = "windows"))]
+pub fn mark_ptt_active(_active: bool) {}

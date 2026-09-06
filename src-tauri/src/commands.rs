@@ -208,6 +208,24 @@ pub fn confirm_recording<R: Runtime>(app: AppHandle<R>) {
     hotkey::end_recording(&app);
 }
 
+/// Inicia a gravação (acionamento manual da interface ou via atalho local).
+#[tauri::command]
+pub fn start_recording<R: Runtime>(app: AppHandle<R>) {
+    hotkey::begin_recording(&app);
+}
+
+/// Finaliza a gravação e prossegue para transcrição.
+#[tauri::command]
+pub fn stop_recording<R: Runtime>(app: AppHandle<R>) {
+    hotkey::end_recording(&app);
+}
+
+/// Alterna entre gravar e parar (hands-free).
+#[tauri::command]
+pub fn toggle_recording<R: Runtime>(app: AppHandle<R>) {
+    hotkey::toggle_recording(&app);
+}
+
 /// Atualiza o sinalizador visual de update no ícone do System Tray
 /// (badge laranja + tooltip informativo + atalho no menu de contexto).
 #[tauri::command]
@@ -279,6 +297,21 @@ pub fn download_gpu_runtime<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
 #[tauri::command]
 pub fn delete_gpu_runtime<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     crate::gpu_runtime::delete_gpu_runtime(&app).map_err(|e| format!("{:#}", e))
+}
+
+/// Retorna a lista de palavras mais frequentes registradas pelo rastreador de ditado.
+#[tauri::command]
+pub fn get_frequent_words<R: Runtime>(
+    app: AppHandle<R>,
+    limit: Option<usize>,
+) -> Vec<(String, u32)> {
+    crate::dictionary::get_top_frequent_words(&app, limit.unwrap_or(30))
+}
+
+/// Limpa o histórico do rastreador de frequência de palavras.
+#[tauri::command]
+pub fn clear_frequent_words<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::dictionary::clear_frequencies(&app).map_err(|e| format!("{:#}", e))
 }
 
 

@@ -195,6 +195,23 @@ fn llm_thread_loop<R: Runtime>(
             }
         };
 
+        // Remove travessões automáticos inseridos por modelos de IA
+        let final_text = final_text
+            .replace(" — ", ", ")
+            .replace(" – ", ", ")
+            .replace('—', ",")
+            .replace('–', "-");
+
+        // Aplica substituições configuradas no dicionário pessoal
+        let final_text = if cfg.dictionary.enabled {
+            crate::dictionary::apply_replacements(&final_text, &cfg.dictionary.replacements)
+        } else {
+            final_text
+        };
+
+        // Registra no rastreador de frequência para sugerir vocabulário
+        crate::dictionary::record_dictated_text(&app, &final_text);
+
         // Sempre emite o texto pronto — a UI mostra antes da colagem.
         let _ = app.emit("format-complete", final_text.clone());
 
@@ -514,8 +531,9 @@ fn build_system_prompt(cfg: &AppConfig, active_app: Option<&ActiveApp>) -> Strin
          - Corrija pontuação, capitalização e concordância gramatical.\n\
          - Remova hesitações e muletas: \"ah\", \"uhm\", \"tipo\", \"então\" \
          quando não fizer sentido, palavras repetidas por engano.\n\
-         - Mantenha o significado original e o tom informal do usuário — não \
-         formalize demais nem parafraseie sem necessidade.\n\
+         - Mantenha o significado original e o tom do usuário, sem \
+         formalizar demais nem parafrasear sem necessidade.\n\
+         - Não use travessões (— ou –) no texto gerado; use vírgulas, dois-pontos ou pontos quando necessário.\n\
          - Não adicione informação que não estava no áudio nem interprete \
          além do que foi dito.\n\
          - Responda APENAS com o texto reformatado, sem preâmbulo, sem \
@@ -538,6 +556,22 @@ fn build_system_prompt(cfg: &AppConfig, active_app: Option<&ActiveApp>) -> Strin
         ));
     }
 
+    if cfg.dictionary.enabled && !cfg.dictionary.custom_words.is_empty() {
+        let valid_words: Vec<&str> = cfg
+            .dictionary
+            .custom_words
+            .iter()
+            .map(|w| w.trim())
+            .filter(|w| !w.is_empty())
+            .collect();
+        if !valid_words.is_empty() {
+            rules.push_str(&format!(
+                "\n\n- Vocabulário preferido do usuário (mantenha a grafia e capitalização exatas destes termos caso sejam ditados): {}.",
+                valid_words.join(", ")
+            ));
+        }
+    }
+
     rules
 }
 
@@ -554,44 +588,44 @@ fn context_hint_for(app: &ActiveApp) -> Option<String> {
     // se usa — ex: se o título contém "Gmail" num navegador, entende email).
     let base = match app.category() {
         AppCategory::Chat => {
-            "Contexto: o texto vai ser colado num app de chat/mensageria — \
+            "Contexto: o texto vai ser colado num app de chat/mensageria; \
              use tom informal e conversacional, mantenha frases curtas."
         }
         AppCategory::Email => {
-            "Contexto: o texto vai ser colado num cliente de email — use tom \
+            "Contexto: o texto vai ser colado num cliente de email; use tom \
              um pouco mais estruturado e formal do que chat, mas ainda natural. \
              Se o ditado começar como resposta, mantenha isso."
         }
         AppCategory::Code => {
-            "Contexto: o texto vai ser colado num editor de código ou IDE — \
+            "Contexto: o texto vai ser colado num editor de código ou IDE; \
              preserve nomes técnicos, variáveis, funções, sintaxe e trechos \
              de código exatamente como ditados. Se o usuário ditar código, \
              não parafraseie."
         }
         AppCategory::Document => {
-            "Contexto: o texto vai ser colado num editor de documentos — o \
+            "Contexto: o texto vai ser colado num editor de documentos; o \
              usuário provavelmente está redigindo prosa mais longa e estruturada. \
              Pode usar frases mais elaboradas, mas sem inventar conteúdo."
         }
         AppCategory::Terminal => {
-            "Contexto: o texto vai ser colado num terminal/shell — se o ditado \
+            "Contexto: o texto vai ser colado num terminal/shell; se o ditado \
              for claramente um comando, mantenha a sintaxe exata (flags, paths, \
              pipes) sem \"reformatar\" gramaticalmente. Não adicione pontuação \
              que quebraria o comando."
         }
         AppCategory::Browser => {
-            "Contexto: o texto vai ser colado numa página web — use tom neutro \
+            "Contexto: o texto vai ser colado numa página web; use tom neutro \
              e adaptável, sem assumir se é chat, email ou formulário."
         }
         AppCategory::Other => return None,
     };
 
-    // Anexa o título da janela como pista adicional (ex: "Gmail — Google Chrome").
+    // Anexa o título da janela como pista adicional.
     let mut hint = String::from(base);
     let title = app.window_title.trim();
     if !title.is_empty() {
         hint.push_str(&format!(
-            "\nApp em foco: {} — janela: \"{}\".",
+            "\nApp em foco: {}, janela: \"{}\".",
             app.exe_name, title
         ));
     } else {

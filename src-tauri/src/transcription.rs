@@ -155,6 +155,9 @@ fn transcription_thread_loop<R: Runtime>(
                 }
             }
             Command::Transcribe(wav_path) => {
+                let whisper_prompt = crate::dictionary::build_whisper_prompt(&cfg_snapshot.dictionary);
+                let prompt_ref = whisper_prompt.as_deref();
+
                 let result = match cfg_snapshot.transcription_provider {
                     TranscriptionProvider::Local => transcribe_local(
                         &app,
@@ -162,6 +165,7 @@ fn transcription_thread_loop<R: Runtime>(
                         cfg_snapshot.whisper_model,
                         use_gpu,
                         &cfg_snapshot.transcription_language,
+                        prompt_ref,
                         &mut loaded,
                     ),
                     TranscriptionProvider::OpenaiCloud => {
@@ -175,6 +179,7 @@ fn transcription_thread_loop<R: Runtime>(
                                 model: OPENAI_MODEL,
                                 api_key: &cfg_snapshot.openai_api_key,
                                 language: &cfg_snapshot.transcription_language,
+                                prompt: prompt_ref,
                                 label: "OpenAI",
                             },
                         )
@@ -190,6 +195,7 @@ fn transcription_thread_loop<R: Runtime>(
                                 model: GROQ_MODEL,
                                 api_key: &cfg_snapshot.groq_api_key,
                                 language: &cfg_snapshot.transcription_language,
+                                prompt: prompt_ref,
                                 label: "Groq",
                             },
                         )
@@ -197,7 +203,10 @@ fn transcription_thread_loop<R: Runtime>(
                 };
 
                 match result {
-                    Ok(text) => {
+                    Ok(mut text) => {
+                        if cfg_snapshot.dictionary.enabled {
+                            text = crate::dictionary::apply_replacements(&text, &cfg_snapshot.dictionary.replacements);
+                        }
                         let _ = app.emit("transcription-complete", text.clone());
                         app.state::<LlmService>().format(text);
                     }
@@ -253,6 +262,7 @@ fn transcribe_local<R: Runtime>(
     wanted: WhisperModel,
     use_gpu: bool,
     language: &str,
+    prompt: Option<&str>,
     loaded: &mut Option<LoadedModel>,
 ) -> Result<String> {
     // Se o modo GPU estiver ativo e o runtime CUDA estiver instalado no disco,
@@ -261,7 +271,7 @@ fn transcribe_local<R: Runtime>(
         if let Ok(model_path) = models::file_path(app, wanted) {
             if model_path.exists() {
                 let _ = app.emit("transcription-status", "transcrevendo");
-                match crate::gpu_runtime::transcribe_via_gpu_engine(app, &model_path, wav_path, language) {
+                match crate::gpu_runtime::transcribe_via_gpu_engine(app, &model_path, wav_path, language, prompt) {
                     Ok(text) => return Ok(text),
                     Err(e) => {
                         eprintln!("Aviso: Falha no engine GPU, caindo para CPU: {:#}", e);
@@ -279,7 +289,7 @@ fn transcribe_local<R: Runtime>(
         .ctx;
 
     let _ = app.emit("transcription-status", "transcrevendo");
-    transcribe_wav_local(ctx, wav_path, language)
+    transcribe_wav_local(ctx, wav_path, language, prompt)
 }
 
 /// Carrega o modelo local do disco com os parâmetros de dispositivo (GPU vs CPU).
@@ -336,7 +346,12 @@ fn load_local_model<R: Runtime>(
 }
 
 /// Executa a transcrição local usando o modelo já carregado.
-fn transcribe_wav_local(ctx: &WhisperContext, wav_path: &Path, language: &str) -> Result<String> {
+fn transcribe_wav_local(
+    ctx: &WhisperContext,
+    wav_path: &Path,
+    language: &str,
+    prompt: Option<&str>,
+) -> Result<String> {
     let audio = read_and_prepare_wav(wav_path)?;
 
     let mut state = ctx
@@ -346,6 +361,12 @@ fn transcribe_wav_local(ctx: &WhisperContext, wav_path: &Path, language: &str) -
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     let language = language.trim();
     params.set_language((!language.is_empty()).then_some(language));
+    if let Some(p) = prompt {
+        let p_trimmed = p.trim();
+        if !p_trimmed.is_empty() {
+            params.set_initial_prompt(p_trimmed);
+        }
+    }
     params.set_print_progress(false);
     params.set_print_special(false);
     params.set_print_realtime(false);
@@ -395,6 +416,8 @@ struct CloudTranscribeConfig<'a> {
     api_key: &'a str,
     /// Código ISO opcional. Vazio preserva a detecção automática da API.
     language: &'a str,
+    /// Prompt opcional para guiar o vocabulário e contexto da transcrição.
+    prompt: Option<&'a str>,
     /// Nome do provider — usado em mensagens de erro.
     label: &'static str,
 }
@@ -408,7 +431,7 @@ fn transcribe_cloud<R: Runtime>(
     if cfg.api_key.trim().is_empty() {
         return Err(anyhow!(
             "Nenhuma chave da {} configurada.\n\
-             Vá em Configurações e cole sua chave — ou troque a transcrição\n\
+             Vá em Configurações e cole sua chave, ou troque a transcrição\n\
              de volta para \"Local\".",
             cfg.label
         ));
@@ -433,6 +456,12 @@ fn transcribe_cloud<R: Runtime>(
         .with_context(|| format!("falha ao anexar {}", send_path.display()))?;
     if !cfg.language.trim().is_empty() {
         form = form.text("language", cfg.language.trim().to_string());
+    }
+    if let Some(prompt) = cfg.prompt {
+        let p = prompt.trim();
+        if !p.is_empty() {
+            form = form.text("prompt", p.to_string());
+        }
     }
 
     let response = client
@@ -642,7 +671,7 @@ pub fn run_local_benchmark<R: Runtime>(
         if !crate::gpu_runtime::is_cuda_runtime_installed(app) {
             return Err(anyhow!(
                 "Aceleração por GPU selecionada, mas o Módulo NVIDIA CUDA ainda não foi baixado.\n\
-                 Clique no botão \"Baixar Módulo NVIDIA CUDA\" acima para instalar o suporte à GPU."
+                 Clique no botão \"Baixar Módulo NVIDIA CUDA\" acima para instalar o suporte para GPU."
             ));
         }
 

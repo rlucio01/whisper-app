@@ -278,6 +278,7 @@ pub fn transcribe_via_gpu_engine<R: Runtime>(
     model_path: &Path,
     wav_path: &Path,
     language: &str,
+    prompt: Option<&str>,
 ) -> Result<String> {
     let cli_path = get_whisper_cli_path(app)
         .ok_or_else(|| anyhow!("Runtime CUDA não encontrado no disco"))?;
@@ -309,6 +310,13 @@ pub fn transcribe_via_gpu_engine<R: Runtime>(
         cmd.arg("-l").arg(lang);
     } else {
         cmd.arg("-l").arg("auto");
+    }
+
+    if let Some(p) = prompt {
+        let p_trimmed = p.trim();
+        if !p_trimmed.is_empty() {
+            cmd.arg("--prompt").arg(p_trimmed);
+        }
     }
 
     let output = cmd
@@ -368,7 +376,7 @@ pub fn run_gpu_benchmark<R: Runtime>(
     writer.finalize()?;
 
     let start = Instant::now();
-    let result = transcribe_via_gpu_engine(app, model_path, &temp_wav, "pt");
+    let result = transcribe_via_gpu_engine(app, model_path, &temp_wav, "pt", None);
     let _ = std::fs::remove_file(&temp_wav);
 
     match result {

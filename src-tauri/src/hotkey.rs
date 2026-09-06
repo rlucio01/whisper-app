@@ -307,14 +307,16 @@ fn do_repaste<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Início de uma gravação — comum aos dois modos. Detecta o app em foco,
-/// marca o flag compartilhado, notifica a UI e dispara a captura de áudio.
-fn begin_recording<R: Runtime>(app: &AppHandle<R>) {
+/// Início de uma gravação (comum a atalho global ou acionamento local da UI).
+pub fn begin_recording<R: Runtime>(app: &AppHandle<R>) {
     if let Some(state) = app.try_state::<SharedRecordingActive>() {
         if let Ok(mut active) = state.lock() {
             *active = true;
         }
     }
+
+    // Marca no hook nativo que PTT está ativo para que soltar as teclas finalize a gravação
+    modkey::mark_ptt_active(true);
 
     // Captura o app em foco ANTES de qualquer coisa. Se o usuário trocar de
     // janela depois, ainda assim usamos o app que estava ativo no momento
@@ -332,10 +334,15 @@ fn begin_recording<R: Runtime>(app: &AppHandle<R>) {
     app.state::<AudioService>().start();
 }
 
-/// Fim de uma gravação — comum aos dois modos. Também usado diretamente pelo
-/// comando `confirm_recording` (botão ✓ do overlay), que finaliza a gravação
-/// em curso na hora, como se o atalho tivesse sido solto/tocado de novo.
-pub(crate) fn end_recording<R: Runtime>(app: &AppHandle<R>) {
+/// Alterna início ou término da gravação.
+pub fn toggle_recording<R: Runtime>(app: &AppHandle<R>) {
+    do_hands_free_toggle(app);
+}
+
+/// Fim de uma gravação.
+pub fn end_recording<R: Runtime>(app: &AppHandle<R>) {
+    modkey::mark_ptt_active(false);
+
     if let Some(state) = app.try_state::<SharedRecordingActive>() {
         if let Ok(mut active) = state.lock() {
             *active = false;
@@ -350,6 +357,8 @@ pub(crate) fn end_recording<R: Runtime>(app: &AppHandle<R>) {
 /// botão ✕ do overlay. O áudio capturado até agora é descartado
 /// (`AudioService::cancel`, que também esconde o overlay).
 pub(crate) fn cancel_recording<R: Runtime>(app: &AppHandle<R>) {
+    modkey::mark_ptt_active(false);
+
     if let Some(state) = app.try_state::<SharedRecordingActive>() {
         if let Ok(mut active) = state.lock() {
             *active = false;

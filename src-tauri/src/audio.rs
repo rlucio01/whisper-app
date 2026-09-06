@@ -235,7 +235,7 @@ fn start_recording(device_name: &str) -> Result<Recording> {
             .find(|d| d.name().map(|n| n == device_name).unwrap_or(false))
             .ok_or_else(|| {
                 anyhow!(
-                    "microfone \"{}\" não encontrado — verifique se ainda está \
+                    "microfone \"{}\" não encontrado: verifique se ainda está \
                      conectado, ou escolha outro em Configurações.",
                     device_name
                 )

@@ -141,11 +141,11 @@ fn detect_gpus_dxgi() -> Vec<GpuInfo> {
         let is_discrete = vram_mb >= 512 && vendor != "Microsoft";
 
         let recommendation = if is_discrete && vram_mb >= 2048 {
-            "GPU Dedicada de Alta Performance — Ideal para transcrição local ultrarrápida.".to_string()
+            "GPU Dedicada de Alta Performance: ideal para transcrição local ultrarrápida.".to_string()
         } else if is_discrete {
-            "GPU Dedicada — Recomendada para modelos leves (Tiny / Base).".to_string()
+            "GPU Dedicada: recomendada para modelos leves (Tiny / Base).".to_string()
         } else {
-            "Gráficos Integrados — O processador (CPU) pode oferecer desempenho mais estável.".to_string()
+            "Gráficos Integrados: o processador (CPU) pode oferecer desempenho mais estável.".to_string()
         };
 
         result.push(GpuInfo {

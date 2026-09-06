@@ -49,7 +49,7 @@ impl WhisperModel {
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
                 ],
                 size_mb: 31,
-                display_name: "Tiny (~31MB) — mais rápido, menos preciso",
+                display_name: "Tiny (~31MB): mais rápido, menos preciso",
             },
             WhisperModel::Base => ModelMeta {
                 filename: "ggml-base-q5_1.bin",
@@ -58,7 +58,7 @@ impl WhisperModel {
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
                 ],
                 size_mb: 59,
-                display_name: "Base (~59MB) — bom para testes",
+                display_name: "Base (~59MB): bom para testes",
             },
             WhisperModel::Small => ModelMeta {
                 filename: "ggml-small-q5_1.bin",
@@ -67,7 +67,7 @@ impl WhisperModel {
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
                 ],
                 size_mb: 181,
-                display_name: "Small (~181MB) — recomendado para uso diário",
+                display_name: "Small (~181MB): recomendado para uso diário",
             },
             WhisperModel::Medium => ModelMeta {
                 filename: "ggml-medium-q5_0.bin",
@@ -76,7 +76,7 @@ impl WhisperModel {
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
                 ],
                 size_mb: 514,
-                display_name: "Medium (~514MB) — mais preciso, mais lento",
+                display_name: "Medium (~514MB): mais preciso, mais lento",
             },
             WhisperModel::LargeTurbo => ModelMeta {
                 filename: "ggml-large-v3-turbo-q5_0.bin",
@@ -85,7 +85,7 @@ impl WhisperModel {
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
                 ],
                 size_mb: 574,
-                display_name: "Large-v3 Turbo (~574MB) — máxima precisão",
+                display_name: "Large-v3 Turbo (~574MB): máxima precisão",
             },
         }
     }

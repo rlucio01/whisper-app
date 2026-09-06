@@ -26,6 +26,7 @@ mod transcription;
 mod usage;
 mod visual;
 mod gpu_runtime;
+pub mod dictionary;
 
 use std::sync::{Arc, Mutex};
 
@@ -211,6 +212,9 @@ pub fn run() {
             commands::repaste_text,
             commands::cancel_recording,
             commands::confirm_recording,
+            commands::start_recording,
+            commands::stop_recording,
+            commands::toggle_recording,
             commands::set_tray_update_available,
             commands::get_hardware_info,
             commands::run_benchmark,
@@ -219,6 +223,8 @@ pub fn run() {
             commands::get_gpu_runtime_status,
             commands::download_gpu_runtime,
             commands::delete_gpu_runtime,
+            commands::get_frequent_words,
+            commands::clear_frequent_words,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o app Tauri");
@@ -235,7 +241,7 @@ fn create_tray_menu<R: tauri::Runtime>(
 
     // Se houver update disponível, coloca o aviso de atualização no topo
     if let Some(ver) = update_version {
-        let update_label = format!("🚀 Atualização v{} disponível!", ver);
+        let update_label = format!("Atualização v{} disponível", ver);
         let update_item =
             MenuItem::with_id(app, "update_available", &update_label, true, None::<&str>)?;
         menu.append(&update_item)?;
@@ -343,7 +349,7 @@ pub fn update_tray_status<R: tauri::Runtime>(
             let _ = tray.set_icon(Some(badged));
         }
         let _ = tray.set_tooltip(Some(format!(
-            "Whisper App — Nova versão v{} disponível!",
+            "Whisper App: Nova versão v{} disponível!",
             ver
         )));
     } else {
@@ -404,20 +410,29 @@ fn toggle_translation<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     let Ok(mut guard) = state.lock() else {
         return;
     };
-    let previous = guard.translate.enabled;
-    guard.translate.enabled = !previous;
+    let previous_enabled = guard.translate.enabled;
+    let previous_skip = guard.skip_llm_formatting;
+    let new_enabled = !previous_enabled;
+    guard.translate.enabled = new_enabled;
+    if new_enabled {
+        // Ao ativar tradução, desabilita "não reformatar" para que o LLM processe a tradução.
+        guard.skip_llm_formatting = false;
+    }
     let updated = guard.clone();
     drop(guard);
 
     if config::save(app, &updated).is_err() {
         if let Ok(mut guard) = state.lock() {
-            guard.translate.enabled = previous;
+            guard.translate.enabled = previous_enabled;
+            guard.skip_llm_formatting = previous_skip;
         }
+    } else {
+        let _ = app.emit("config-changed", &updated);
     }
     let current_enabled = state
         .lock()
         .map(|cfg| cfg.translate.enabled)
-        .unwrap_or(previous);
+        .unwrap_or(previous_enabled);
     set_translation_tray_checked(app, current_enabled);
 }
 

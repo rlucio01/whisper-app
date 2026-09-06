@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { displayHotkey } from "./hotkeyFormat";
+import {
+  displayHotkey,
+  formatHotkey,
+  formatModifierCombo,
+  MOD_CODE_TO_NAME,
+} from "./hotkeyFormat";
 import { playBeep } from "./sound";
 import type { useUpdater } from "./useUpdater";
 
@@ -114,6 +119,18 @@ interface AppConfig {
   start_minimized: boolean;
   mute_audio_while_recording: boolean;
   autostart_initialized?: boolean;
+  dictionary?: DictionaryConfig;
+}
+
+export interface WordReplacement {
+  from: string;
+  to: string;
+}
+
+export interface DictionaryConfig {
+  enabled: boolean;
+  custom_words: string[];
+  replacements: WordReplacement[];
 }
 
 interface ModelStatus {
@@ -249,6 +266,7 @@ export type SettingsTab =
   | "hotkeys"
   | "transcription"
   | "llm"
+  | "dictionary"
   | "overlay"
   | "usage"
   | "updates";
@@ -267,8 +285,6 @@ interface SettingsProps {
 
 export default function Settings({ onBack, updater, initialTab = "audio" }: SettingsProps) {
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [autostart, setAutostartState] = useState<boolean | null>(null);
   // Controla se o campo de texto "modelo personalizado" aparece. Não dá pra
   // derivar isso só comparando `llm_model` com a lista curada: ao escolher
@@ -288,11 +304,155 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
   const [gpuProgress, setGpuProgress] = useState<GpuRuntimeProgress | null>(null);
   const [gpuError, setGpuError] = useState<string | null>(null);
 
+  // Estados do Dicionário Pessoal e Frequência
+  const [frequentWords, setFrequentWords] = useState<[string, number][]>([]);
+  const [newWord, setNewWord] = useState("");
+  const [newReplaceFrom, setNewReplaceFrom] = useState("");
+  const [newReplaceTo, setNewReplaceTo] = useState("");
+
+  // Auto-save de configurações
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const isInitialLoaded = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
+
   const refreshGpuStatus = () => {
     invoke<GpuRuntimeStatus>("get_gpu_runtime_status")
       .then(setGpuStatus)
       .catch((e) => console.error("Falha ao obter status GPU:", e));
   };
+
+  const loadFrequentWords = () => {
+    invoke<[string, number][]>("get_frequent_words", { limit: 40 })
+      .then(setFrequentWords)
+      .catch((e) => console.error("Falha ao carregar termos frequentes:", e));
+  };
+
+  // Auto-salva quando qualquer campo do config mudar
+  useEffect(() => {
+    if (!config) return;
+    if (!isInitialLoaded.current) {
+      isInitialLoaded.current = true;
+      return;
+    }
+
+    setSaveStatus("saving");
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = window.setTimeout(async () => {
+      try {
+        await invoke("save_config", { newConfig: config });
+        setSaveStatus("saved");
+        setSaveError(null);
+      } catch (e) {
+        setSaveStatus("error");
+        setSaveError(`Erro ao salvar: ${e}`);
+      }
+    }, 280);
+
+    return () => {
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [config]);
+
+  // Escuta alteração remota de config (ex: toggle de tradução no tray)
+  useEffect(() => {
+    const unlisten = listen<AppConfig>("config-changed", (event) => {
+      if (event.payload) {
+        isInitialLoaded.current = false;
+        setConfig(event.payload);
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "dictionary") {
+      loadFrequentWords();
+    }
+  }, [activeTab]);
+
+  function toggleDictionary(enabled: boolean) {
+    if (!config) return;
+    const currentDict = config.dictionary || { enabled: true, custom_words: [], replacements: [] };
+    setConfig({
+      ...config,
+      dictionary: {
+        ...currentDict,
+        enabled,
+      },
+    });
+  }
+
+  function addCustomWord(word: string) {
+    const trimmed = word.trim();
+    if (!trimmed || !config) return;
+    const currentDict = config.dictionary || { enabled: true, custom_words: [], replacements: [] };
+    if (currentDict.custom_words.includes(trimmed)) return;
+    setConfig({
+      ...config,
+      dictionary: {
+        ...currentDict,
+        custom_words: [...currentDict.custom_words, trimmed],
+      },
+    });
+    setNewWord("");
+  }
+
+  function removeCustomWord(word: string) {
+    if (!config) return;
+    const currentDict = config.dictionary || { enabled: true, custom_words: [], replacements: [] };
+    setConfig({
+      ...config,
+      dictionary: {
+        ...currentDict,
+        custom_words: currentDict.custom_words.filter((w) => w !== word),
+      },
+    });
+  }
+
+  function addReplacement(from: string, to: string) {
+    const f = from.trim();
+    const t = to.trim();
+    if (!f || !t || !config) return;
+    const currentDict = config.dictionary || { enabled: true, custom_words: [], replacements: [] };
+    setConfig({
+      ...config,
+      dictionary: {
+        ...currentDict,
+        replacements: [
+          ...currentDict.replacements.filter((r) => r.from.toLowerCase() !== f.toLowerCase()),
+          { from: f, to: t },
+        ],
+      },
+    });
+    setNewReplaceFrom("");
+    setNewReplaceTo("");
+  }
+
+  function removeReplacement(index: number) {
+    if (!config) return;
+    const currentDict = config.dictionary || { enabled: true, custom_words: [], replacements: [] };
+    setConfig({
+      ...config,
+      dictionary: {
+        ...currentDict,
+        replacements: currentDict.replacements.filter((_, i) => i !== index),
+      },
+    });
+  }
+
+  function clearFrequencies() {
+    invoke("clear_frequent_words")
+      .then(() => setFrequentWords([]))
+      .catch((e) => console.error("Falha ao limpar histórico de termos:", e));
+  }
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -307,7 +467,11 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
             !CURATED_MODELS[cfg.provider].some((m) => m.id === cfg.llm_model),
         );
       })
-      .catch((e) => setMessage(`Erro ao carregar config: ${e}`));
+      .catch((e) => {
+        console.error("Erro ao carregar config:", e);
+        setSaveStatus("error");
+        setSaveError(`Erro ao carregar: ${e}`);
+      });
     invoke<boolean>("is_autostart_enabled")
       .then(setAutostartState)
       .catch(() => setAutostartState(false));
@@ -407,7 +571,9 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
       await invoke("set_autostart", { enable });
     } catch (e) {
       setAutostartState(!enable);
-      setMessage(`Falha ao ${enable ? "ativar" : "desativar"} autostart: ${e}`);
+      console.error(`Falha ao alterar autostart:`, e);
+      setSaveStatus("error");
+      setSaveError(`Falha ao alterar autostart: ${e}`);
     }
   }
 
@@ -422,19 +588,6 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
   const providerLabel = PROVIDER_LABELS[config.provider];
   const curated = CURATED_MODELS[config.provider];
 
-  async function save() {
-    if (!config) return;
-    setSaving(true);
-    setMessage(null);
-    try {
-      await invoke("save_config", { newConfig: config });
-      setMessage("Configurações salvas.");
-    } catch (e) {
-      setMessage(`Erro ao salvar: ${e}`);
-    } finally {
-      setSaving(false);
-    }
-  }
 
   return (
     <div className="settings">
@@ -446,16 +599,20 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
           <h2>Configurações</h2>
         </div>
         <div className="settings-header-actions">
-          {message && (
-            <span
-              className={`settings-saved-badge ${message.startsWith("Erro") ? "settings-badge-error" : ""}`}
-            >
-              {message}
+          {saveStatus === "saving" && (
+            <span className="save-status-badge saving">Salvando…</span>
+          )}
+          {saveStatus === "saved" && (
+            <span className="save-status-badge saved">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Salvo automaticamente
             </span>
           )}
-          <button className="btn-primary" onClick={save} disabled={saving}>
-            {saving ? "Salvando…" : "Salvar"}
-          </button>
+          {saveStatus === "error" && (
+            <span className="save-status-badge error">{saveError}</span>
+          )}
         </div>
       </header>
 
@@ -465,42 +622,49 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
           className={`settings-tab-btn ${activeTab === "audio" ? "active" : ""}`}
           onClick={() => setActiveTab("audio")}
         >
-          <span className="tab-icon">🎙️</span> Áudio & Sistema
+          Áudio & Sistema
         </button>
         <button
           type="button"
           className={`settings-tab-btn ${activeTab === "hotkeys" ? "active" : ""}`}
           onClick={() => setActiveTab("hotkeys")}
         >
-          <span className="tab-icon">⌨️</span> Atalhos
+          Atalhos
         </button>
         <button
           type="button"
           className={`settings-tab-btn ${activeTab === "transcription" ? "active" : ""}`}
           onClick={() => setActiveTab("transcription")}
         >
-          <span className="tab-icon">🗣️</span> Transcrição
+          Transcrição
         </button>
         <button
           type="button"
           className={`settings-tab-btn ${activeTab === "llm" ? "active" : ""}`}
           onClick={() => setActiveTab("llm")}
         >
-          <span className="tab-icon">✨</span> IA & Tradução
+          IA & Tradução
+        </button>
+        <button
+          type="button"
+          className={`settings-tab-btn ${activeTab === "dictionary" ? "active" : ""}`}
+          onClick={() => setActiveTab("dictionary")}
+        >
+          Dicionário & Vocabulário
         </button>
         <button
           type="button"
           className={`settings-tab-btn ${activeTab === "overlay" ? "active" : ""}`}
           onClick={() => setActiveTab("overlay")}
         >
-          <span className="tab-icon">🪟</span> Barra Flutuante
+          Barra Flutuante
         </button>
         <button
           type="button"
           className={`settings-tab-btn ${activeTab === "usage" ? "active" : ""}`}
           onClick={() => setActiveTab("usage")}
         >
-          <span className="tab-icon">📊</span> Consumo & Limites
+          Consumo & Limites
           {usageReport?.is_near_limit && <span className="tab-badge-dot" />}
         </button>
         <button
@@ -508,14 +672,14 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
           className={`settings-tab-btn ${activeTab === "updates" ? "active" : ""}`}
           onClick={() => setActiveTab("updates")}
         >
-          <span className="tab-icon">🚀</span> Atualizações
+          Atualizações
         </button>
       </nav>
 
       {activeTab === "audio" && (
         <div className="settings-tab-content">
           <div className="settings-card">
-            <h3 className="card-title">🎙️ Entrada de Áudio & Microfone</h3>
+            <h3 className="card-title">Entrada de Áudio & Microfone</h3>
             <MicrophonePicker
               selected={config.microphone}
               onSelect={(name) => setConfig({ ...config, microphone: name })}
@@ -559,7 +723,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
               </label>
               <p className="field-hint">
                 Toca um bipe curto ao iniciar a gravação e outro quando o texto
-                termina de ser colado — feedback útil quando o app está no tray.{" "}
+                termina de ser colado (feedback útil quando o aplicativo está na bandeja).{" "}
                 <button
                   type="button"
                   className="btn-link"
@@ -575,7 +739,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
           </div>
 
           <div className="settings-card">
-            <h3 className="card-title">🖥️ Inicialização do Sistema</h3>
+            <h3 className="card-title">Inicialização do Sistema</h3>
             <section className="field">
               <label className="checkbox-row">
                 <input
@@ -587,9 +751,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                 <span>Iniciar automaticamente com o Windows</span>
               </label>
               <p className="field-hint">
-                O app sobe direto pro tray no login — o atalho fica disponível sem
-                você precisar abrir manualmente. Essa opção não passa pelo botão
-                Salvar: já vale ao clicar.
+                O aplicativo inicia automaticamente minimizado na bandeja do sistema ao ligar o computador.
               </p>
             </section>
 
@@ -606,7 +768,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
               </label>
               <p className="field-hint">
                 Ao abrir o app (manualmente ou junto com o Windows), a janela
-                principal fica escondida — só o ícone na bandeja aparece. O atalho
+                principal fica escondida, exibindo apenas o ícone na bandeja. O atalho
                 de ditado continua funcionando normalmente.
               </p>
             </section>
@@ -617,7 +779,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
       {activeTab === "hotkeys" && (
         <div className="settings-tab-content">
           <div className="settings-card">
-            <h3 className="card-title">⌨️ Atalhos do Teclado</h3>
+            <h3 className="card-title">Atalhos do Teclado</h3>
             <section className="field">
               <label className="field-label">Atalho global (push-to-talk)</label>
               <HotkeyCapture
@@ -641,8 +803,8 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                 onClear={() => setConfig({ ...config, hands_free_hotkey: "" })}
               />
               <p className="field-hint">
-                Toque uma vez pra começar a gravar, toque de novo pra parar — sem
-                precisar segurar. Útil pra ditados longos. Precisa ser diferente do
+                Toque uma vez para começar a gravar, toque de novo para parar, sem
+                precisar segurar. Útil para ditados longos. Precisa ser diferente do
                 atalho push-to-talk acima.
               </p>
             </section>
@@ -667,7 +829,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
       {activeTab === "transcription" && (
         <div className="settings-tab-content">
           <div className="settings-card">
-            <h3 className="card-title">🗣️ Motor de Transcrição</h3>
+            <h3 className="card-title">Motor de Transcrição</h3>
             <section className="field">
               <label className="field-label">Provedor</label>
               <div className="toggle-group">
@@ -745,7 +907,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
 
             {config.transcription_provider === "local" && (
               <div className="settings-card" style={{ marginTop: "1.5rem" }}>
-                <h3 className="card-title">⚡ Aceleração de Hardware & Inferência</h3>
+                <h3 className="card-title">Aceleração de Hardware & Inferência</h3>
 
                 {hardware?.primary_gpu ? (
                   <div
@@ -753,9 +915,6 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                       hardware.primary_gpu.is_discrete ? "discrete" : "cpu"
                     }`}
                   >
-                    <span className="hardware-icon">
-                      {hardware.primary_gpu.is_discrete ? "🎮" : "💻"}
-                    </span>
                     <div className="hardware-text">
                       <span className="hardware-title">
                         {hardware.primary_gpu.name} ({hardware.primary_gpu.vendor})
@@ -769,7 +928,6 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   </div>
                 ) : (
                   <div className="hardware-badge cpu">
-                    <span className="hardware-icon">💻</span>
                     <div className="hardware-text">
                       <span className="hardware-title">Processador (CPU)</span>
                       <span className="hardware-detail">
@@ -783,7 +941,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   <div className={`gpu-runtime-card ${!gpuStatus.installed ? "not-installed" : ""}`}>
                     <div className="gpu-runtime-header">
                       <div className="gpu-runtime-title">
-                        {gpuStatus.installed ? "🎮 Módulo NVIDIA CUDA 12 Instalado" : "⚡ Aceleração por GPU NVIDIA Disponível"}
+                        {gpuStatus.installed ? "Módulo NVIDIA CUDA 12 Instalado" : "Aceleração por GPU NVIDIA Disponível"}
                       </div>
                       <div className="gpu-runtime-actions">
                         {gpuStatus.installed ? (
@@ -801,7 +959,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                             onClick={handleDownloadGpu}
                             disabled={!!gpuProgress}
                           >
-                            {gpuProgress ? "Baixando e instalando…" : "⚡ Baixar Módulo NVIDIA CUDA (~670 MB)"}
+                            {gpuProgress ? "Baixando e instalando…" : "Baixar Módulo NVIDIA CUDA (~670 MB)"}
                           </button>
                         )}
                       </div>
@@ -831,7 +989,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                     )}
                     {gpuError && (
                       <p className="field-hint" style={{ color: "#ef4444", marginTop: "0.4rem" }}>
-                        ⚠️ {gpuError}
+                        {gpuError}
                       </p>
                     )}
                   </div>
@@ -875,7 +1033,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   </p>
                   {config.inference_device === "gpu" && !gpuStatus?.installed && (
                     <p className="field-hint" style={{ color: "#fbbf24", fontWeight: 500, marginTop: "0.25rem" }}>
-                      ⚠️ O módulo NVIDIA CUDA ainda não está instalado. Baixe o módulo no botão acima para usar a GPU.
+                      O módulo NVIDIA CUDA ainda não está instalado. Baixe o módulo no botão acima para usar a GPU.
                     </p>
                   )}
                 </section>
@@ -883,7 +1041,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                 <div className="benchmark-box">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>⏱️ Medição de Desempenho Local</div>
+                      <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>Medição de Desempenho Local</div>
                       <div style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.6)", marginTop: "0.15rem" }}>
                         Mede a velocidade real de transcrição no seu computador.
                       </div>
@@ -901,7 +1059,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
 
                   {benchmarkError && (
                     <p className="field-hint" style={{ color: "#ef4444", marginTop: "0.6rem" }}>
-                      ⚠️ {benchmarkError}
+                      {benchmarkError}
                     </p>
                   )}
 
@@ -989,7 +1147,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
       {activeTab === "llm" && (
         <div className="settings-tab-content">
           <div className="settings-card">
-            <h3 className="card-title">✨ Pós-processamento com IA</h3>
+            <h3 className="card-title">Pós-processamento com IA</h3>
             <section className="field">
               <label className="field-label" htmlFor="provider">
                 Provedor de LLM
@@ -1117,7 +1275,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                     })
                   }
                 />
-                <span>Não reformatar — colar a transcrição bruta</span>
+                <span>Não reformatar (colar a transcrição bruta)</span>
               </label>
               <p className="field-hint">
                 Pula a chamada de LLM e cola exatamente o que foi transcrito.
@@ -1126,21 +1284,23 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
           </div>
 
           <div className="settings-card">
-            <h3 className="card-title">🌐 Tradução Automática</h3>
+            <h3 className="card-title">Tradução Automática</h3>
             <section className="field">
               <label className="checkbox-row">
                 <input
                   type="checkbox"
                   checked={config.translate.enabled}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const willEnable = e.target.checked;
                     setConfig({
                       ...config,
+                      skip_llm_formatting: willEnable ? false : config.skip_llm_formatting,
                       translate: {
                         ...config.translate,
-                        enabled: e.target.checked,
+                        enabled: willEnable,
                       },
-                    })
-                  }
+                    });
+                  }}
                 />
                 <span>Traduzir automaticamente</span>
               </label>
@@ -1181,10 +1341,205 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
         </div>
       )}
 
+      {activeTab === "dictionary" && (
+        <div className="settings-tab-content">
+          <div className="settings-card">
+            <h3 className="card-title">Dicionário Pessoal & Correção Automática</h3>
+            <p className="card-subtitle">
+              Configure termos técnicos, nomes próprios e regras de substituição de palavras para guiar o Whisper e o modelo de IA com a grafia correta.
+            </p>
+
+            <section className="field" style={{ marginTop: "1rem" }}>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={config.dictionary?.enabled ?? true}
+                  onChange={(e) => toggleDictionary(e.target.checked)}
+                />
+                <span className="checkbox-label">
+                  <strong>Ativar Dicionário Pessoal e Correção Automática</strong>
+                  <span className="hint-block">
+                    Injeta o vocabulário no prompt dos motores Whisper (CPU, GPU e Nuvem) e aplica regras de substituição imediata.
+                  </span>
+                </span>
+              </label>
+            </section>
+          </div>
+
+          <div className="settings-card">
+            <h3 className="card-title">Vocabulário Personalizado</h3>
+            <p className="card-subtitle">
+              Palavras-chave, jargões, nomes próprios e marcas. O Whisper e a IA priorizam esta grafia e capitalização exatas.
+            </p>
+
+            <div className="dictionary-add-row" style={{ marginTop: "1rem" }}>
+              <input
+                type="text"
+                className="input-text"
+                placeholder="Exemplo: Tauri, PostgreSQL, Antigravity, Dr. Silva..."
+                value={newWord}
+                onChange={(e) => setNewWord(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addCustomWord(newWord);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => addCustomWord(newWord)}
+                disabled={!newWord.trim()}
+              >
+                Adicionar
+              </button>
+            </div>
+
+            <div className="dictionary-tags-container" style={{ marginTop: "1rem" }}>
+              {(config.dictionary?.custom_words || []).length === 0 ? (
+                <p className="hint-block" style={{ fontStyle: "italic", margin: 0 }}>
+                  Nenhuma palavra personalizada adicionada ainda.
+                </p>
+              ) : (
+                (config.dictionary?.custom_words || []).map((word) => (
+                  <span key={word} className="dictionary-tag">
+                    <span className="dictionary-tag-text">{word}</span>
+                    <button
+                      type="button"
+                      className="dictionary-tag-remove"
+                      onClick={() => removeCustomWord(word)}
+                      title="Remover termo"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="settings-card">
+            <h3 className="card-title">Substituição Automática de Palavras</h3>
+            <p className="card-subtitle">
+              Substitui automaticamente termos incorretos pelo termo desejado em todas as transcrições.
+            </p>
+
+            <div className="dictionary-replacement-inputs" style={{ marginTop: "1rem" }}>
+              <input
+                type="text"
+                className="input-text"
+                placeholder="De (ex: anti gravidade)"
+                value={newReplaceFrom}
+                onChange={(e) => setNewReplaceFrom(e.target.value)}
+              />
+              <span className="replacement-arrow">→</span>
+              <input
+                type="text"
+                className="input-text"
+                placeholder="Para (ex: Antigravity)"
+                value={newReplaceTo}
+                onChange={(e) => setNewReplaceTo(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addReplacement(newReplaceFrom, newReplaceTo);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => addReplacement(newReplaceFrom, newReplaceTo)}
+                disabled={!newReplaceFrom.trim() || !newReplaceTo.trim()}
+              >
+                Criar regra
+              </button>
+            </div>
+
+            <div className="dictionary-replacements-list" style={{ marginTop: "1rem" }}>
+              {(config.dictionary?.replacements || []).length === 0 ? (
+                <p className="hint-block" style={{ fontStyle: "italic", margin: 0 }}>
+                  Nenhuma regra de substituição configurada.
+                </p>
+              ) : (
+                (config.dictionary?.replacements || []).map((rule, idx) => (
+                  <div key={idx} className="dictionary-replacement-row">
+                    <div className="replacement-rule-display">
+                      <span className="rule-from">"{rule.from}"</span>
+                      <span className="replacement-arrow">→</span>
+                      <span className="rule-to">"{rule.to}"</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-link btn-xs"
+                      onClick={() => removeReplacement(idx)}
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="settings-card">
+            <div className="card-header-with-action">
+              <div>
+                <h3 className="card-title">Palavras Mais Frequentes Ditadas</h3>
+                <p className="card-subtitle">
+                  Termos recorrentes detectados nos seus áudios. Clique em "+ Vocabulário" para ensinar o modelo.
+                </p>
+              </div>
+              {frequentWords.length > 0 && (
+                <button
+                  type="button"
+                  className="btn-secondary btn-xs"
+                  onClick={clearFrequencies}
+                >
+                  Zerar estatísticas
+                </button>
+              )}
+            </div>
+
+            <div className="dictionary-frequent-grid" style={{ marginTop: "1rem" }}>
+              {frequentWords.length === 0 ? (
+                <p className="hint-block" style={{ fontStyle: "italic", margin: 0 }}>
+                  Nenhum termo frequente registrado ainda. Conforme você ditar, as palavras aparecerão aqui.
+                </p>
+              ) : (
+                frequentWords.slice(0, 30).map(([word, count]) => {
+                  const alreadyAdded = (config.dictionary?.custom_words || []).includes(word);
+                  return (
+                    <div key={word} className="frequent-word-chip">
+                      <div className="frequent-word-info">
+                        <span className="frequent-word-text">{word}</span>
+                        <span className="frequent-word-count">{count}x</span>
+                      </div>
+                      {!alreadyAdded ? (
+                        <button
+                          type="button"
+                          className="btn-link btn-xs"
+                          onClick={() => addCustomWord(word)}
+                        >
+                          + Vocabulário
+                        </button>
+                      ) : (
+                        <span className="frequent-word-added">Adicionado</span>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === "overlay" && (
         <div className="settings-tab-content">
           <div className="settings-card">
-            <h3 className="card-title">🪟 Indicador Visual & Barra Flutuante</h3>
+            <h3 className="card-title">Indicador Visual & Barra Flutuante</h3>
             <section className="field">
               <label className="field-label" htmlFor="visual">
                 Indicador visual durante a gravação
@@ -1311,7 +1666,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
         <div className="settings-tab-content">
           <div className="settings-card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <h3 className="card-title" style={{ margin: 0 }}>📊 Consumo & Limites de API</h3>
+              <h3 className="card-title" style={{ margin: 0 }}>Consumo & Limites de API</h3>
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button
                   type="button"
@@ -1320,7 +1675,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   onClick={() => loadUsage(usageProvider)}
                   disabled={loadingUsage}
                 >
-                  {loadingUsage ? "Atualizando…" : "🔄 Atualizar"}
+                  {loadingUsage ? "Atualizando…" : "Atualizar"}
                 </button>
                 <button
                   type="button"
@@ -1328,7 +1683,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   style={{ fontSize: "0.78rem", padding: "0.3rem 0.65rem", color: "#f87171" }}
                   onClick={handleClearUsage}
                 >
-                  🗑️ Zerar
+                  Zerar
                 </button>
               </div>
             </div>
@@ -1358,7 +1713,6 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
 
             {usageReport?.alert_message && (
               <div className="usage-alert-box" style={{ marginTop: "1rem" }}>
-                <span style={{ fontSize: "1.1rem" }}>⚠️</span>
                 <span>{usageReport.alert_message}</span>
               </div>
             )}
@@ -1366,7 +1720,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
 
           {/* Speech-to-Text Card */}
           <div className="settings-card">
-            <h3 className="card-title">🎙️ Speech to Text (Transcrição de Áudio)</h3>
+            <h3 className="card-title">Speech to Text (Transcrição de Áudio)</h3>
             <p className="field-hint" style={{ marginTop: "-0.25rem", marginBottom: "1.25rem" }}>
               {usageProvider === "groq"
                 ? "Limites base do plano Groq Free: 7.2k seg/hora (2h), 28.8k seg/dia (8h), 20 RPM e 2.000 RPD."
@@ -1458,7 +1812,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
 
           {/* Chat Completions / LLM Card */}
           <div className="settings-card">
-            <h3 className="card-title">✨ Chat Completions (Formatação & LLM)</h3>
+            <h3 className="card-title">Chat Completions (Formatação & LLM)</h3>
             <p className="field-hint" style={{ marginTop: "-0.25rem", marginBottom: "1.25rem" }}>
               {usageProvider === "groq"
                 ? "Limites base do plano Groq Free: 30 RPM, 1.000 RPD, 30k TPM e 200k TPD."
@@ -1553,7 +1907,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
       {activeTab === "updates" && (
         <div className="settings-tab-content">
           <div className="settings-card">
-            <h3 className="card-title">🚀 Atualizações & Informações</h3>
+            <h3 className="card-title">Atualizações & Informações</h3>
             <UpdateSection updater={updater} />
 
             <div style={{ marginTop: "1.5rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
@@ -1562,7 +1916,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                 className="btn-secondary"
                 onClick={() => invoke("open_config_folder")}
               >
-                📂 Abrir pasta do config
+                Abrir pasta do config
               </button>
             </div>
           </div>
@@ -1570,9 +1924,9 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
       )}
 
       <footer className="settings-footer-actions">
-        <button className="btn-primary btn-large" onClick={save} disabled={saving}>
-          {saving ? "Salvando…" : "Salvar Configurações"}
-        </button>
+        <span className="settings-footer-note">
+          Todas as alterações são salvas automaticamente.
+        </span>
       </footer>
     </div>
   );
@@ -2067,94 +2421,3 @@ function HotkeyCapture({ value, onChange, placeholder, onClear }: HotkeyCaptureP
   );
 }
 
-/** Mapeia o `event.code` de cada tecla modificadora (esquerda/direita) para
- *  o nome canônico usado nas strings de atalho. */
-const MOD_CODE_TO_NAME: Record<string, string> = {
-  ControlLeft: "Ctrl",
-  ControlRight: "Ctrl",
-  ShiftLeft: "Shift",
-  ShiftRight: "Shift",
-  AltLeft: "Alt",
-  AltRight: "Alt",
-  MetaLeft: "Super",
-  MetaRight: "Super",
-  OSLeft: "Super",
-  OSRight: "Super",
-};
-
-/** Ordem canônica dos modificadores numa string de atalho — mesma ordem que
- *  `formatHotkey` já usa (Ctrl, Shift, Alt, Super) e que o backend entende
- *  tanto pra combinações padrão quanto pras só-de-modificador. */
-const MOD_ORDER = ["Ctrl", "Shift", "Alt", "Super"];
-
-/** Monta a string de uma combinação só de modificadores (ex: "Ctrl+Super"
- *  para "Ctrl+Windows"), na ordem canônica. */
-function formatModifierCombo(mods: Set<string>): string {
-  return MOD_ORDER.filter((m) => mods.has(m)).join("+");
-}
-
-/** Converte um KeyboardEvent numa string aceita pelo `Shortcut::from_str`.
- *  Retorna null se for só um modificador (ex: só Shift). */
-function formatHotkey(e: KeyboardEvent): string | null {
-  // Só-modificador: espera próxima tecla.
-  if (MOD_CODE_TO_NAME[e.code]) return null;
-
-  const key = codeToShortcutKey(e.code);
-  if (!key) return null;
-
-  const parts: string[] = [];
-  if (e.ctrlKey) parts.push("Ctrl");
-  if (e.shiftKey) parts.push("Shift");
-  if (e.altKey) parts.push("Alt");
-  if (e.metaKey) parts.push("Super");
-  parts.push(key);
-  return parts.join("+");
-}
-
-/** Mapeia `event.code` (código físico da tecla, independente de layout) para
- *  o nome que o parser de accelerator do Tauri aceita. */
-function codeToShortcutKey(code: string): string | null {
-  // KeyA..KeyZ -> A..Z
-  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
-  // Digit0..Digit9 -> 0..9
-  if (/^Digit\d$/.test(code)) return code.slice(5);
-  // F1..F24
-  if (/^F\d{1,2}$/.test(code)) return code;
-  // Numpad
-  if (/^Numpad\d$/.test(code)) return "Num" + code.slice(6);
-
-  const map: Record<string, string> = {
-    Space: "Space",
-    Enter: "Enter",
-    NumpadEnter: "Enter",
-    Escape: "Escape",
-    Backspace: "Backspace",
-    Tab: "Tab",
-    CapsLock: "CapsLock",
-    Insert: "Insert",
-    Delete: "Delete",
-    Home: "Home",
-    End: "End",
-    PageUp: "PageUp",
-    PageDown: "PageDown",
-    ArrowUp: "Up",
-    ArrowDown: "Down",
-    ArrowLeft: "Left",
-    ArrowRight: "Right",
-    Minus: "-",
-    Equal: "=",
-    Comma: ",",
-    Period: ".",
-    Slash: "/",
-    Backslash: "\\",
-    Semicolon: ";",
-    Quote: "'",
-    BracketLeft: "[",
-    BracketRight: "]",
-    Backquote: "`",
-    PrintScreen: "PrintScreen",
-    ScrollLock: "ScrollLock",
-    Pause: "Pause",
-  };
-  return map[code] ?? null;
-}

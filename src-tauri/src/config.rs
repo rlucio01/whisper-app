@@ -355,6 +355,10 @@ pub struct AppConfig {
     /// Indica se a inicialização com o Windows já foi configurada no primeiro boot.
     #[serde(default)]
     pub autostart_initialized: bool,
+
+    /// Dicionário pessoal, termos frequentes e regras de substituição automática.
+    #[serde(default)]
+    pub dictionary: crate::dictionary::DictionaryConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -438,6 +442,7 @@ impl Default for AppConfig {
             start_minimized: false,
             mute_audio_while_recording: false,
             autostart_initialized: false,
+            dictionary: crate::dictionary::DictionaryConfig::default(),
         }
     }
 }
