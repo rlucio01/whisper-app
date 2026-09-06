@@ -5,8 +5,8 @@
 <h1 align="center">Whisper App</h1>
 
 <p align="center">
-  Ditado por voz com IA para Windows. Segure um atalho, fale, solte — o texto
-  sai reformatado e já colado no app em que você está.
+  Ditado por voz com IA para Windows. Segure um atalho, fale e solte: o texto
+  sai reformatado e já colado no aplicativo em que você está.
 </p>
 
 <p align="center">
@@ -22,20 +22,28 @@
 ## O que é
 
 Você segura um atalho global (ex: `Ctrl+Windows`), fala, e solta. O áudio é
-transcrito, passa por um LLM que corrige pontuação/hesitações e adapta o
-tom ao app onde você vai colar (chat casual, email formal, editor de
-código...), e o resultado é colado automaticamente onde seu cursor estava —
-sem precisar copiar nada na mão.
+transcrito, passa por um LLM que corrige pontuação ou hesitações e adapta o
+tom ao aplicativo onde você vai colar (chat casual, e-mail formal, editor de
+código...), e o resultado é colado automaticamente onde seu cursor estava,
+sem precisar copiar nada manualmente.
 
-Todo o pipeline roda em background com pegada mínima de recursos: o
-processo fica em **menos de 7MB em idle** no gerenciador de tarefas —
-bem abaixo de apps concorrentes de ditado, que costumam ficar na casa dos
-200MB parados no tray.
+Todo o pipeline roda em segundo plano com consumo mínimo de recursos: o
+processo fica em **menos de 7MB em idle** no gerenciador de tarefas,
+bem abaixo de outros aplicativos de ditado que costumam ocupar centenas de
+megabytes parados na bandeja do sistema.
 
 ## Principais recursos
 
+- **Área de Teste de Digitação**: bloco interativo na tela inicial com botão
+  dedicado de gravação, suporte a Push-to-Talk dentro do campo e contadores em
+  tempo real de palavras, caracteres e estimativa de tokens (~BPE).
+- **Dicionário Pessoal & Frequência de Palavras**: adicione vocabulário próprio,
+  crie regras de substituição automática ("De -> Para") e acompanhe a lista das
+  palavras mais frequentes ditadas, com inclusão no dicionário em um clique.
+- **Salvamento Automático**: configurações salvas em tempo real com indicador
+  sutil de status no cabeçalho, dispensando cliques manuais de confirmação.
 - **Transcrição local** (whisper.cpp, 100% offline) ou **na nuvem**
-  (OpenAI Whisper API ou Groq — mais rápido, roda em hardware dedicado).
+  (OpenAI Whisper API ou Groq: alta velocidade em hardware dedicado).
 - **Detecção de GPU & Aceleração de Hardware**: detecção nativa de placas de
   vídeo (NVIDIA, AMD, Intel Arc) no Windows via DXGI, seleção de dispositivo
   (Automático, GPU ou CPU) e ferramenta integrada de teste de desempenho local.
@@ -43,146 +51,146 @@ bem abaixo de apps concorrentes de ditado, que costumam ficar na casa dos
   acompanhar requisições por minuto (RPM), requisições por dia (RPD), segundos de
   áudio por hora/dia e tokens consumidos em APIs como Groq e OpenAI com alertas de proximidade do limite.
 - **Reformatação por LLM** com 6 provedores suportados: OpenAI, Anthropic,
-  OpenRouter, Groq, Google Gemini e xAI (Grok). Escolha o que preferir e
-  cole sua própria chave de API.
-- **Adaptação por contexto**: detecta o app em foco (Slack, Outlook, VS
+  OpenRouter, Groq, Google Gemini e xAI (Grok). Escolha o provedor preferido e
+  insira sua própria chave de API.
+- **Adaptação por contexto**: detecta a janela em foco (Slack, Outlook, VS
   Code etc.) e ajusta o tom da reformatação de acordo.
-- **Tradução automática** opcional pro idioma que você configurar.
+- **Tradução automática** configurável com ativação rápida sincronizada pelo
+  menu de contexto da bandeja.
 - Indicador visual **flutuante** com onda de áudio ao vivo e controles no
-  hover (cancelar / concluir agora), indicador na **bandeja do sistema**,
+  hover (cancelar ou concluir agora), indicador na **bandeja do sistema**,
   ou ambos.
 - **Atalhos configuráveis**: push-to-talk, modo hands-free (toca uma vez
-  pra começar, de novo pra parar) e um atalho pra recolar a última
+  para começar, de novo para parar) e atalho para recolar a última
   transcrição sem regravar.
-- **Histórico de ditados** pesquisável, com contagem de palavras e
-  copiar/recolar/apagar por entrada.
-- **Seleção de microfone**, autostart com o Windows, iniciar direto na
-  bandeja, feedback sonoro — tudo opcional, configurável em Configurações.
-- **Atualização automática**: o app avisa sozinho quando sai uma versão
-  nova e instala com um clique, sem precisar baixar `.exe`/`.msi` manualmente.
+- **Histórico de ditados** pesquisável, com contagem de palavras e opções de
+  copiar, recolar ou apagar por entrada.
+- **Seleção de microfone**, inicialização automática com o Windows, iniciar direto na
+  bandeja e feedback sonoro: opções totalmente configuráveis.
+- **Atualização automática**: aviso e instalação com um clique de novas versões
+  assinadas digitalmente, sem necessidade de download manual.
+- **Visual Limpo e Profissional**: interface moderna com ícones SVG vetorizados,
+  sem emojis informais, sem crases e sem travessões.
 
 Stack: **Tauri 2 + React 19 + TypeScript + Rust**.
 
-## Instalação (uso normal, sem compilar nada)
+## Instalação (uso normal, sem compilar)
 
 1. Baixe o instalador mais recente na
    [página de Releases](https://github.com/rlucio01/whisper-app/releases/latest)
-   (`.msi` ou `.exe`, qualquer um dos dois instala o app).
-2. Rode o instalador e abra o Whisper App.
-3. Na primeira execução, abra **Configurações** (ícone ⚙) e escolha um
-   provedor de LLM + cole sua chave de API — veja a seção
-   [Configuração](#configuração) abaixo.
+   (`.msi` ou `.exe`, ambos instalam o aplicativo).
+2. Execute o instalador e abra o Whisper App.
+3. Na primeira execução, abra **Configurações** (ícone de engrenagem) e escolha um
+   provedor de LLM inserindo sua chave de API (veja a seção
+   [Configuração](#configuração) abaixo).
 
-Depois disso, novas versões aparecem sozinhas dentro do app (veja
-"Atualização automática" acima) — não é mais necessário voltar aqui pra
-baixar manualmente.
+Após isso, novas versões são notificadas e atualizadas diretamente dentro do aplicativo.
 
-## Fluxo
+## Fluxo de Execução
 
 ```
 hotkey pressionado
     → grava áudio (cpal)
         → transcreve (whisper.cpp local OU OpenAI/Groq na nuvem)
-            → reformata via LLM (provedor à sua escolha)
-                → cola no app em foco (clipboard + Ctrl+V)
+            → aplica dicionário e regras de substituição
+                → reformata via LLM (provedor à sua escolha)
+                    → cola no app em foco (clipboard + Ctrl+V)
 ```
 
 ## Configuração
 
-O primeiro uso pede que você abra Configurações e:
+Na primeira utilização, acesse Configurações para definir:
 
-1. Escolha o **provedor de LLM** (OpenAI, Anthropic, OpenRouter, Groq,
-   Gemini ou xAI) e cole a chave da API correspondente.
-2. Escolha o modo de **transcrição** — Local (offline), OpenAI (cloud) ou
+1. O **provedor de LLM** (OpenAI, Anthropic, OpenRouter, Groq,
+   Gemini ou xAI) e a respectiva chave de API.
+2. O modo de **transcrição**: Local (offline), OpenAI (cloud) ou
    Groq (cloud, mais rápido).
-3. Se local: baixe pelo menos um modelo do Whisper (Small é o default e
-   cobre uso diário em CPU comum).
-4. O **atalho global** padrão é `Ctrl+Windows` (alterável clicando em "Alterar").
-5. O app já vem configurado para **iniciar automaticamente com o Windows** por padrão (desativável em Configurações).
-6. (Opcional) Ative modo hands-free, atalho de recolar, microfone específico, etc.
+3. Se optar pelo modo local: faça o download do modelo desejado (o modelo Small é o
+   padrão recomendado para uso diário em CPU ou GPU).
+4. O **atalho global** padrão é `Ctrl+Windows` (alterável na interface).
+5. O aplicativo vem configurado para **iniciar com o Windows** por padrão (opção ajustável nas configurações).
+6. (Opcional) Dicionário pessoal, regras de substituição "De -> Para", modo hands-free, microfone específico, etc.
 
-Arquivo de config: `%APPDATA%\com.rlucio.whisperapp\config.json`. Nenhuma
-chave de API é hardcoded no app — todas ficam só nesse arquivo local.
+Arquivo de configuração: `%APPDATA%\com.rlucio.whisperapp\config.json`. Nenhuma
+chave de API fica gravada no código: tudo permanece salvo apenas no seu arquivo local.
 
 ## Modelos do Whisper (modo local)
 
-Baixe pela UI (Configurações → Transcrição → Local). Ficam em
+Os modelos podem ser baixados na interface (Configurações → Transcrição → Local) e ficam salvos em
 `%APPDATA%\com.rlucio.whisperapp\models\`.
 
 | Modelo         | Arquivo                            | Tamanho | Uso                           |
 |----------------|-------------------------------------|---------|-------------------------------|
-| Tiny           | `ggml-tiny-q5_1.bin`               | ~31 MB  | Mais rápido, menos preciso    |
-| Base           | `ggml-base-q5_1.bin`               | ~59 MB  | Bom para testes               |
-| Small (default)| `ggml-small-q5_1.bin`              | ~181 MB | Recomendado para uso diário   |
-| Medium         | `ggml-medium-q5_0.bin`             | ~514 MB | Mais preciso, mais lento      |
+| Tiny           | `ggml-tiny-q5_1.bin`               | ~31 MB  | Mais rápido, menor precisão   |
+| Base           | `ggml-base-q5_1.bin`               | ~59 MB  | Bom para testes rápidos       |
+| Small (padrão) | `ggml-small-q5_1.bin`              | ~181 MB | Recomendado para o dia a dia  |
+| Medium         | `ggml-medium-q5_0.bin`             | ~514 MB | Mais preciso, maior exigência |
 | Large-v3 Turbo | `ggml-large-v3-turbo-q5_0.bin`     | ~574 MB | Máxima precisão               |
 
 ## Rodando a partir do código-fonte
 
-Só necessário se você quiser modificar o app — pra apenas usá-lo, veja
-[Instalação](#instalação-uso-normal-sem-compilar-nada) acima.
+Necessário apenas se você desejar modificar o código. Para uso regular, consulte
+[Instalação](#instalação-uso-normal-sem-compilar).
 
 ### Requisitos (Windows)
 
 - **Node.js 18+** e **Rust** (via `rustup`).
-- **Visual Studio 2019/2022 Build Tools** com "Desktop development with C++".
-- **LLVM/Clang** (para compilar o whisper.cpp) — `winget install LLVM.LLVM`.
-- **CMake** e **Ninja** — `winget install Kitware.CMake Ninja-build.Ninja`.
+- **Visual Studio 2019/2022 Build Tools** com a carga de trabalho "Desktop development with C++".
+- **LLVM/Clang** (para compilação do whisper.cpp): `winget install LLVM.LLVM`.
+- **CMake** e **Ninja**: `winget install Kitware.CMake Ninja-build.Ninja`.
 
-Após instalar tudo, adicione `C:\Program Files\LLVM\bin` ao PATH ou deixe o
-script `scripts/dev.ps1` configurar sozinho.
+Após a instalação, certifique-se de que `C:\Program Files\LLVM\bin` esteja no PATH ou utilize o
+script `scripts/dev.ps1`, que configura o ambiente automaticamente.
 
-### Modo dev
+### Modo de desenvolvimento
 
 ```powershell
 .\scripts\dev.ps1
 ```
 
-O script configura o ambiente MSVC + LLVM + Ninja + `CMAKE_GENERATOR=Ninja`
-antes de rodar `npm run tauri dev`. Rodar `npm run tauri dev` direto num
-PowerShell "normal" falha porque o `whisper-rs` precisa dessas variáveis.
+O script prepara o ambiente MSVC + LLVM + Ninja antes de executar `npm run tauri dev`.
 
-### Build release
+### Build de release
 
 ```powershell
 .\scripts\dev.ps1 build
 ```
 
-Gera o `.msi` e `.exe` em `src-tauri/target/release/bundle/`.
+Gera os instaladores `.msi` e `.exe` assinados em `src-tauri/target/release/bundle/`.
 
 ## Estrutura do projeto
 
 ```
-src/                   — UI React (App, Settings, History, Overlay)
-src-tauri/src/         — Lógica Rust:
-  ├── active_app       — detecção do app em foco (Win32)
-  ├── audio            — captura via cpal, escreve WAV em memória
-  ├── commands         — comandos Tauri chamáveis do frontend
-  ├── config           — settings JSON persistentes
-  ├── history          — histórico de ditados (JSON Lines em disco)
-  ├── hotkey           — atalhos globais (push-to-talk, hands-free, recolar)
-  ├── insert           — clipboard + Ctrl+V via enigo + arboard
-  ├── llm              — chamadas multi-provedor com prompt contextual
-  ├── models           — download e gerenciamento dos modelos Whisper
-  ├── modkey           — monitoramento de teclas modificadoras globais
-  ├── sound            — feedback sonoro de início/fim de gravação
-  ├── system_audio     — captura/mute de áudio do sistema
-  ├── transcription    — whisper.cpp local + APIs cloud (OpenAI/Groq)
-  └── visual           — overlay flutuante + tray colorido e badge de update
-scripts/dev.ps1        — wrapper que configura ambiente e roda Tauri
-scripts/make-latest-json.ps1 — gera o manifesto consumido pelo auto-updater
-CLAUDE.md              — notas de arquitetura e guia para agentes de IA
+src/                   - UI React (App, Settings, History, Overlay)
+src-tauri/src/         - Lógica de backend em Rust:
+  ├── active_app       - detecção do aplicativo em foco (Win32)
+  ├── audio            - captura via cpal, processamento de WAV em memória
+  ├── commands         - comandos Tauri invocáveis pelo frontend
+  ├── config           - configurações persistentes em JSON e auto-save
+  ├── dictionary       - vocabulário pessoal, regras de substituição e frequência
+  ├── gpu_runtime      - gerenciamento de execução em GPU e CPU
+  ├── hardware         - detecção de GPUs instaladas via DXGI
+  ├── history          - histórico de ditados em disco (JSON Lines)
+  ├── hotkey           - atalhos globais (push-to-talk, hands-free, recolar)
+  ├── insert           - colagem de texto via clipboard e simulação de teclas
+  ├── lib              - ponto de entrada, serviços e menu na bandeja do sistema
+  ├── llm              - integração com provedores de IA e formatação de texto
+  ├── models           - download e gerenciamento dos modelos do Whisper
+  ├── modkey           - monitoramento de teclas modificadoras do teclado
+  ├── sound            - efeitos sonoros de início e término de gravação
+  ├── system_audio     - gerenciamento e pausa do áudio do sistema
+  ├── transcription    - whisper.cpp local e integração cloud (OpenAI/Groq)
+  └── visual           - overlay flutuante, indicador na bandeja e badge de update
+scripts/dev.ps1        - script para configuração do ambiente e execução
+scripts/make-latest-json.ps1 - geração do manifesto para atualização automática
+CLAUDE.md              - notas de arquitetura e diretrizes para desenvolvimento
 ```
 
-## Cross-platform
+## Compatibilidade
 
-MVP focado em Windows. O código Rust é escrito com `#[cfg(target_os = "...")]`
-onde faz diferença — macOS/Linux vão precisar de implementações próprias para
-o módulo `active_app`, permissões nativas e ajustes no bundler. Ver `CLAUDE.md`
-para o mapa por SO.
+O desenvolvimento inicial é focado no Windows. O código em Rust foi estruturado com `#[cfg(target_os = "...")]`
+onde há particularidades de plataforma, permitindo expansões futuras para outros sistemas operacionais.
 
 ## Licença
 
-Repositório público para transparência e uso pessoal — sem licença open
-source formal definida. Sinta-se à vontade para explorar o código, mas ele
-não está licenciado para redistribuição ou uso comercial.
+Repositório para uso pessoal e transparência. Fique à vontade para explorar o código; não licenciado para redistribuição ou exploração comercial.
