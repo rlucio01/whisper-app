@@ -270,7 +270,7 @@ fn download_blocking<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30 * 60))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WhisperApp/0.4.13")
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WhisperApp/0.4.14")
         .build()
         .context("falha ao criar HTTP client")?;
 
