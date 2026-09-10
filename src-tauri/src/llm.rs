@@ -139,9 +139,11 @@ fn llm_thread_loop<R: Runtime>(
         // passthrough, então sem isso ficaria inacessível depois pro histórico.
         let raw_text_for_history = raw_text.clone();
 
-        // Determina o texto final: LLM formatado, ou passthrough se sem chave
-        // ou se o usuário pediu explicitamente pra pular a formatação.
-        let final_text = if cfg.skip_llm_formatting || cfg.active_api_key().trim().is_empty() {
+        // Determina o texto final: LLM formatado/traduzido, ou passthrough se sem chave
+        // ou se o usuário pediu explicitamente pra pular a formatação (e a tradução não estiver ativa).
+        let final_text = if (cfg.skip_llm_formatting && !cfg.translate.enabled)
+            || cfg.active_api_key().trim().is_empty()
+        {
             raw_text
         } else {
             let _ = app.emit("formatting-started", ());
@@ -555,12 +557,20 @@ fn build_system_prompt(cfg: &AppConfig, active_app: Option<&ActiveApp>) -> Strin
     }
 
     if cfg.translate.enabled {
-        rules.push_str(&format!(
-            "\n\n- Traduza o texto reformatado para o idioma cujo código ISO é \
-             \"{}\". Mantenha as demais regras acima aplicadas ao texto \
-             traduzido.",
-            cfg.translate.target_language
-        ));
+        if cfg.skip_llm_formatting {
+            rules.push_str(&format!(
+                "\n\n- Traduza diretamente o texto para o idioma cujo código ISO é \
+                 \"{}\" mantendo máxima fidelidade à transcrição original sem parafrasear.",
+                cfg.translate.target_language
+            ));
+        } else {
+            rules.push_str(&format!(
+                "\n\n- Traduza o texto reformatado para o idioma cujo código ISO é \
+                 \"{}\". Mantenha as demais regras acima aplicadas ao texto \
+                 traduzido.",
+                cfg.translate.target_language
+            ));
+        }
     }
 
     if cfg.dictionary.enabled && !cfg.dictionary.custom_words.is_empty() {

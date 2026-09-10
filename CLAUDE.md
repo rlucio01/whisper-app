@@ -99,8 +99,8 @@ Fluxo do usuário:
   - Prevenção de duplicação: a inserção via clipboard do sistema respeita o foco nativo do campo.
 - **Salvamento Automático (Auto-Save)**:
   - Settings.tsx salva mutações com debounce de 280ms, exibindo status discreto ("Salvando...", "Salvo").
-- **Sincronização do System Tray**:
-  - Ao alternar a tradução automática no menu de contexto, o estado de `skip_llm_formatting` é desativado para garantir que o texto seja traduzido pela LLM.
+- **Sincronização do System Tray e Tradução**:
+  - Ao alternar a tradução automática no menu de contexto ou nas configurações, o estado de `skip_llm_formatting` é integralmente preservado. Se o usuário ditar com tradução ativa e "não reformatar" ligado, a LLM realiza a tradução direta mantendo a fidelidade à fala; ao desativar a tradução, a transcrição bruta sem formatação continua ativa automaticamente.
 - **Diretrizes Tipográficas e Estilísticas**:
   - Sem crases e sem travessões na UI e nos prompts do sistema.
   - Sanitização automática em `llm.rs` para remover travessões gerados por modelos de linguagem.

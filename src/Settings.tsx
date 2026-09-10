@@ -1350,7 +1350,6 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                     const willEnable = e.target.checked;
                     setConfig({
                       ...config,
-                      skip_llm_formatting: willEnable ? false : config.skip_llm_formatting,
                       translate: {
                         ...config.translate,
                         enabled: willEnable,
@@ -1362,7 +1361,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
               </label>
               {config.translate.enabled && config.skip_llm_formatting && (
                 <p className="field-hint">
-                  Sem efeito enquanto "Não reformatar" estiver marcado.
+                  A tradução será aplicada diretamente sobre a fala transcrita sem reformatar.
                 </p>
               )}
               {config.translate.enabled && (

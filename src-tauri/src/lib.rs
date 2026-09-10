@@ -414,20 +414,14 @@ fn toggle_translation<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
         return;
     };
     let previous_enabled = guard.translate.enabled;
-    let previous_skip = guard.skip_llm_formatting;
     let new_enabled = !previous_enabled;
     guard.translate.enabled = new_enabled;
-    if new_enabled {
-        // Ao ativar tradução, desabilita "não reformatar" para que o LLM processe a tradução.
-        guard.skip_llm_formatting = false;
-    }
     let updated = guard.clone();
     drop(guard);
 
     if config::save(app, &updated).is_err() {
         if let Ok(mut guard) = state.lock() {
             guard.translate.enabled = previous_enabled;
-            guard.skip_llm_formatting = previous_skip;
         }
     } else {
         let _ = app.emit("config-changed", &updated);
