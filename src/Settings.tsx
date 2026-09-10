@@ -129,6 +129,7 @@ interface AppConfig {
   model_download_source?: ModelDownloadSource;
   custom_model_url?: string;
   remove_trailing_period?: boolean;
+  previous_skip_llm_formatting?: boolean | null;
 }
 
 export interface WordReplacement {
@@ -1309,6 +1310,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                     setConfig({
                       ...config,
                       skip_llm_formatting: e.target.checked,
+                      previous_skip_llm_formatting: e.target.checked,
                     })
                   }
                 />
@@ -1348,20 +1350,39 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   checked={config.translate.enabled}
                   onChange={(e) => {
                     const willEnable = e.target.checked;
-                    setConfig({
-                      ...config,
-                      translate: {
-                        ...config.translate,
-                        enabled: willEnable,
-                      },
-                    });
+                    if (willEnable) {
+                      setConfig({
+                        ...config,
+                        previous_skip_llm_formatting: config.skip_llm_formatting,
+                        skip_llm_formatting: false,
+                        translate: {
+                          ...config.translate,
+                          enabled: true,
+                        },
+                      });
+                    } else {
+                      const restoredSkip =
+                        config.previous_skip_llm_formatting !== undefined &&
+                        config.previous_skip_llm_formatting !== null
+                          ? config.previous_skip_llm_formatting
+                          : config.skip_llm_formatting;
+                      setConfig({
+                        ...config,
+                        previous_skip_llm_formatting: null,
+                        skip_llm_formatting: restoredSkip,
+                        translate: {
+                          ...config.translate,
+                          enabled: false,
+                        },
+                      });
+                    }
                   }}
                 />
                 <span>Traduzir automaticamente</span>
               </label>
-              {config.translate.enabled && config.skip_llm_formatting && (
+              {config.translate.enabled && (
                 <p className="field-hint">
-                  A tradução será aplicada diretamente sobre a fala transcrita sem reformatar.
+                  Requer chamadas de IA. Ao desmarcar a tradução, seu estado anterior de "Não reformatar" será restaurado automaticamente.
                 </p>
               )}
               {config.translate.enabled && (

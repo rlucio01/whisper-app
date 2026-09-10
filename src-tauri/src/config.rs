@@ -393,6 +393,11 @@ pub struct AppConfig {
     /// Se `true`, remove o ponto final automático ao término das frases ditadas.
     #[serde(default)]
     pub remove_trailing_period: bool,
+
+    /// Guarda o estado anterior de `skip_llm_formatting` antes da tradução automática ser ativada,
+    /// para restaurar exatamente a preferência do usuário quando a tradução for desativada.
+    #[serde(default)]
+    pub previous_skip_llm_formatting: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -480,6 +485,7 @@ impl Default for AppConfig {
             model_download_source: ModelDownloadSource::default(),
             custom_model_url: String::new(),
             remove_trailing_period: false,
+            previous_skip_llm_formatting: None,
         }
     }
 }
