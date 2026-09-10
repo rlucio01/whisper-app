@@ -83,11 +83,25 @@ impl LlmService {
         // o pool de conexões (com keep-alive TLS) quente — economiza o
         // handshake em cada request. Diferença é significativa: ~200-400ms
         // por chamada em vez de estabelecer TLS do zero toda vez.
-        let client = reqwest::blocking::Client::builder()
+        let (http_proxy, danger_accept_invalid_certs) = config
+            .lock()
+            .map(|g| (g.http_proxy.trim().to_string(), g.danger_accept_invalid_certs))
+            .unwrap_or_else(|_| (String::new(), false));
+
+        let mut builder = reqwest::blocking::Client::builder()
             .timeout(REQUEST_TIMEOUT)
-            .pool_max_idle_per_host(4)
-            .build()
-            .expect("falha ao criar HTTP client do LLM");
+            .pool_max_idle_per_host(4);
+
+        if !http_proxy.is_empty() {
+            if let Ok(proxy) = reqwest::Proxy::all(&http_proxy) {
+                builder = builder.proxy(proxy);
+            }
+        }
+        if danger_accept_invalid_certs {
+            builder = builder.danger_accept_invalid_certs(true);
+        }
+
+        let client = builder.build().expect("falha ao criar HTTP client do LLM");
 
         thread::spawn(move || llm_thread_loop(cmd_rx, app, config, client));
         Self { cmd_tx }

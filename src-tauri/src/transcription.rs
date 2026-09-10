@@ -75,9 +75,29 @@ impl TranscriptionService {
 
         // HTTP client reutilizado para chamadas cloud — mantém keep-alive
         // TLS quente entre requests. Timeout generoso pra áudios longos.
-        let client = reqwest::blocking::Client::builder()
+        let (http_proxy, danger_accept_invalid_certs) =
+            match app.try_state::<crate::config::SharedConfig>() {
+                Some(state) => state
+                    .lock()
+                    .map(|g| (g.http_proxy.trim().to_string(), g.danger_accept_invalid_certs))
+                    .unwrap_or_else(|_| (String::new(), false)),
+                None => (String::new(), false),
+            };
+
+        let mut builder = reqwest::blocking::Client::builder()
             .timeout(CLOUD_REQUEST_TIMEOUT)
-            .pool_max_idle_per_host(2)
+            .pool_max_idle_per_host(2);
+
+        if !http_proxy.is_empty() {
+            if let Ok(proxy) = reqwest::Proxy::all(&http_proxy) {
+                builder = builder.proxy(proxy);
+            }
+        }
+        if danger_accept_invalid_certs {
+            builder = builder.danger_accept_invalid_certs(true);
+        }
+
+        let client = builder
             .build()
             .expect("falha ao criar HTTP client de transcrição");
 
@@ -447,13 +467,21 @@ fn transcribe_cloud<R: Runtime>(
         .map(|r| r.duration() as f32 / r.spec().sample_rate as f32)
         .unwrap_or(0.0);
 
-    // `Form::file` lê o arquivo por streaming, sem carregar tudo em RAM.
-    // A extensão `.wav` no filename orienta o parser do provider.
+    // Lê os bytes do áudio para anexar com Part::bytes.
+    // Isso define Content-Length fixo no multipart e evita o erro
+    // "send failed because receiver is gone" que ocorre com `form.file()`
+    // quando proxies corporativos ou servidores fecham a conexão prematuramente.
+    let file_bytes = std::fs::read(&send_path)
+        .with_context(|| format!("falha ao ler áudio em {}", send_path.display()))?;
+    let file_part = reqwest::blocking::multipart::Part::bytes(file_bytes)
+        .file_name("audio.wav")
+        .mime_str("audio/wav")
+        .with_context(|| "falha ao configurar formato do áudio multipart")?;
+
     let mut form = reqwest::blocking::multipart::Form::new()
         .text("model", cfg.model)
         .text("response_format", "json")
-        .file("file", &send_path)
-        .with_context(|| format!("falha ao anexar {}", send_path.display()))?;
+        .part("file", file_part);
     if !cfg.language.trim().is_empty() {
         form = form.text("language", cfg.language.trim().to_string());
     }

@@ -394,6 +394,15 @@ pub struct AppConfig {
     #[serde(default)]
     pub remove_trailing_period: bool,
 
+    /// Proxy HTTP/HTTPS opcional para redes corporativas restritas (ex: http://proxy.empresa.com:8080).
+    /// Se vazio, utiliza a detecção automática de proxy do sistema operacional e variáveis de ambiente.
+    #[serde(default)]
+    pub http_proxy: String,
+
+    /// Permite certificados SSL corporativos interceptados por proxies com inspeção de pacotes ou autoassinados.
+    #[serde(default)]
+    pub danger_accept_invalid_certs: bool,
+
     /// Guarda o estado anterior de `skip_llm_formatting` antes da tradução automática ser ativada,
     /// para restaurar exatamente a preferência do usuário quando a tradução for desativada.
     #[serde(default)]
@@ -485,6 +494,8 @@ impl Default for AppConfig {
             model_download_source: ModelDownloadSource::default(),
             custom_model_url: String::new(),
             remove_trailing_period: false,
+            http_proxy: String::new(),
+            danger_accept_invalid_certs: false,
             previous_skip_llm_formatting: None,
         }
     }

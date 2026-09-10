@@ -129,6 +129,8 @@ interface AppConfig {
   model_download_source?: ModelDownloadSource;
   custom_model_url?: string;
   remove_trailing_period?: boolean;
+  http_proxy?: string;
+  danger_accept_invalid_certs?: boolean;
   previous_skip_llm_formatting?: boolean | null;
 }
 
@@ -938,6 +940,14 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   customModelUrl={config.custom_model_url ?? ""}
                   onCustomModelUrlChange={(url) =>
                     setConfig({ ...config, custom_model_url: url })
+                  }
+                  httpProxy={config.http_proxy ?? ""}
+                  onHttpProxyChange={(proxy) =>
+                    setConfig({ ...config, http_proxy: proxy })
+                  }
+                  dangerAcceptInvalidCerts={config.danger_accept_invalid_certs ?? false}
+                  onDangerAcceptInvalidCertsChange={(accept) =>
+                    setConfig({ ...config, danger_accept_invalid_certs: accept })
                   }
                 />
               </div>
@@ -2151,6 +2161,10 @@ interface ModelPickerProps {
   onDownloadSourceChange: (source: ModelDownloadSource) => void;
   customModelUrl: string;
   onCustomModelUrlChange: (url: string) => void;
+  httpProxy?: string;
+  onHttpProxyChange?: (proxy: string) => void;
+  dangerAcceptInvalidCerts?: boolean;
+  onDangerAcceptInvalidCertsChange?: (accept: boolean) => void;
 }
 
 /** Payload dos eventos emitidos pelo Rust em `models.rs::spawn_download`. */
@@ -2176,6 +2190,10 @@ function ModelPicker({
   onDownloadSourceChange,
   customModelUrl,
   onCustomModelUrlChange,
+  httpProxy = "",
+  onHttpProxyChange,
+  dangerAcceptInvalidCerts = false,
+  onDangerAcceptInvalidCertsChange,
 }: ModelPickerProps) {
   const [models, setModels] = useState<ModelStatus[]>([]);
   const [progress, setProgress] = useState<Record<string, DownloadProgress>>(
@@ -2258,7 +2276,7 @@ function ModelPicker({
 
   const importModel = async (slug: WhisperModelSlug) => {
     const filePath = prompt(
-      "Cole o caminho completo do arquivo .bin no seu computador (ex: C:\\Downloads\\ggml-tiny-q5_1.bin):",
+      "Cole o caminho completo do arquivo .bin no seu computador (ex: C:\\Downloads\\ggml-tiny-q5_1.bin):\n\nDica: você também pode clicar em 'Abrir pasta de modelos' acima e simplesmente colar o arquivo .bin baixado diretamente na pasta!",
     );
     if (!filePath || !filePath.trim()) return;
     try {
@@ -2358,10 +2376,61 @@ function ModelPicker({
           </div>
         )}
 
-        <div className="model-corporate-tip">
+        <div
+          style={{
+            marginTop: "0.85rem",
+            paddingTop: "0.85rem",
+            borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.6rem",
+          }}
+        >
+          <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-muted, #9ca3af)" }}>
+            🌐 Conexão de Rede & Proxy Corporativo
+          </span>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            <label className="field-label" style={{ fontSize: "0.78rem", marginBottom: "0.1rem" }}>
+              Proxy HTTP/HTTPS Manual (Opcional):
+            </label>
+            <input
+              type="text"
+              className="text-input"
+              style={{ fontSize: "0.8rem", padding: "0.35rem 0.5rem" }}
+              placeholder="Ex: http://proxy.empresa.com:8080 (deixe vazio para usar detecção automática do Windows)"
+              value={httpProxy}
+              onChange={(e) => onHttpProxyChange?.(e.target.value)}
+            />
+            <span className="field-hint" style={{ fontSize: "0.72rem", margin: 0 }}>
+              Por padrão, o app utiliza o proxy e certificados do Windows. Preencha apenas se sua empresa exigir um endereço específico de proxy.
+            </span>
+          </div>
+
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              cursor: "pointer",
+              fontSize: "0.78rem",
+              color: "var(--text-main, #e5e7eb)",
+              marginTop: "0.2rem",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={dangerAcceptInvalidCerts}
+              onChange={(e) => onDangerAcceptInvalidCertsChange?.(e.target.checked)}
+            />
+            <span>Ignorar erros de SSL / Aceitar certificados de inspeção corporativa (MITM)</span>
+          </label>
+        </div>
+
+        <div className="model-corporate-tip" style={{ marginTop: "0.85rem" }}>
           <span style={{ fontSize: "1rem", flexShrink: 0 }}>💡</span>
           <div>
-            <strong>Ambientes corporativos e proxies restritos:</strong> Se a rede da empresa bloquear domínios como Hugging Face, utilize a opção <strong>GitHub Releases</strong>, informe uma <strong>URL Personalizada</strong> interna ou use o botão <strong>"Importar .bin"</strong> nos modelos abaixo.
+            <strong>Computadores Corporativos:</strong> O app agora usa o repositório de certificados e proxies do Windows (Schannel). Caso a rede da empresa possua bloqueios rígidos de download de binários, você pode baixar pelo navegador em <strong>GitHub Releases</strong> e clicar em <strong>"Abrir pasta de modelos"</strong> no topo para simplesmente colar o arquivo <code>.bin</code> lá dentro!
           </div>
         </div>
       </div>
@@ -2452,28 +2521,42 @@ function ModelPicker({
             {err && (
               <div
                 style={{
-                  marginTop: "0.5rem",
-                  padding: "0.5rem 0.75rem",
+                  marginTop: "0.6rem",
+                  padding: "0.6rem 0.85rem",
                   background: "rgba(239, 68, 68, 0.1)",
                   border: "1px solid rgba(239, 68, 68, 0.3)",
                   borderRadius: "6px",
                 }}
               >
-                <p className="model-error" style={{ margin: 0 }}>
+                <p className="model-error" style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: "0.82rem", lineHeight: 1.45 }}>
                   {err}
                 </p>
-                <p
-                  className="field-hint"
-                  style={{
-                    margin: "0.3rem 0 0",
-                    color: "#fca5a5",
-                    fontSize: "0.78rem",
-                  }}
-                >
-                  Dica: tente mudar a <strong>Fonte de download</strong> para o{" "}
-                  <em>Espelho Alternativo</em>, ou clique em{" "}
-                  <em>"Abrir pasta de modelos"</em> para colocar o arquivo baixado no navegador.
-                </p>
+                <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    className="model-header-btn"
+                    style={{ fontSize: "0.78rem", padding: "0.25rem 0.6rem" }}
+                    onClick={async () => {
+                      try {
+                        await invoke("open_models_folder");
+                      } catch (e) {
+                        alert(`Falha ao abrir pasta: ${e}`);
+                      }
+                    }}
+                    title="Abrir pasta onde os modelos ficam salvos para colar o arquivo .bin baixado no navegador"
+                  >
+                    📁 Abrir pasta de modelos para colar o .bin
+                  </button>
+                  <button
+                    type="button"
+                    className="model-header-btn"
+                    style={{ fontSize: "0.78rem", padding: "0.25rem 0.6rem" }}
+                    onClick={() => refresh()}
+                    title="Recarregar modelos após colar o arquivo na pasta"
+                  >
+                    🔄 Recarregar
+                  </button>
+                </div>
               </div>
             )}
           </div>

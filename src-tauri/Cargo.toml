@@ -48,10 +48,10 @@ anyhow = "1"
 # Bindings Rust do whisper.cpp para transcrição local offline.
 # A primeira build compila o whisper.cpp inteiro (~5-10min).
 whisper-rs = "0.16"
-# HTTP client para chamar APIs de LLM. `blocking` evita precisar do runtime
-# tokio (usamos em thread dedicada). `rustls-tls` evita depender de OpenSSL
-# nativo do sistema (mais simples de buildar no Windows).
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "multipart", "stream"] }
+# HTTP client para chamadas de LLM, cloud transcription e download de modelos.
+# `native-tls` usa Schannel nativo no Windows (respeita certificados corporativos e do SO).
+# `system-proxy` respeita proxies configurados no SO e variáveis de ambiente (HTTP_PROXY/HTTPS_PROXY).
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls", "multipart", "stream", "system-proxy"] }
 # Simulação de teclado (para disparar Ctrl+V no app ativo). Cross-platform:
 # usa SendInput no Windows, CGEvent no macOS, XTest no Linux (X11).
 enigo = "0.6"

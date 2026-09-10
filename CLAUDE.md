@@ -54,7 +54,9 @@ Fluxo do usuário:
   no Windows (WASAPI usa thread-local state), então guarda-lo num state
   compartilhado não funciona. Cada serviço (audio, transcription, llm) tem
   seu próprio pattern de thread + canal.
-- **reqwest blocking** com `rustls-tls` (sem OpenSSL nativo, sem tokio).
+- **reqwest blocking** com `native-tls` e `system-proxy` (usa Schannel nativo
+  no Windows, sem precisar de OpenSSL; respeita certificados corporativos Root CA
+  instalados no Windows e proxies do sistema/ambiente).
   Cliente HTTP é **reutilizado** por serviço (mantém pool com keep-alive TLS
   quente: economia significativa de latência por chamada).
 - **Inserção via clipboard + Ctrl+V** (`enigo` + `arboard`). Salva e restaura

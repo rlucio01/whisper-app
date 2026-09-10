@@ -160,8 +160,28 @@ fn run_download_pipeline<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     let zip_part = runtimes_parent.join("cuda_download.zip.part");
     let zip_file = runtimes_parent.join("cuda_download.zip");
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(600))
+    let (http_proxy, danger_accept_invalid_certs) =
+        match app.try_state::<crate::config::SharedConfig>() {
+            Some(state) => state
+                .lock()
+                .map(|g| (g.http_proxy.trim().to_string(), g.danger_accept_invalid_certs))
+                .unwrap_or_else(|_| (String::new(), false)),
+            None => (String::new(), false),
+        };
+
+    let mut builder = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(600));
+
+    if !http_proxy.is_empty() {
+        if let Ok(proxy) = reqwest::Proxy::all(&http_proxy) {
+            builder = builder.proxy(proxy);
+        }
+    }
+    if danger_accept_invalid_certs {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+
+    let client = builder
         .build()
         .context("falha ao criar client HTTP para download do runtime")?;
 

@@ -257,22 +257,55 @@ fn download_blocking<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<
         },
     );
 
-    let (download_source, custom_url) = match app.try_state::<crate::config::SharedConfig>() {
-        Some(state) => state
-            .lock()
-            .map(|g| (g.model_download_source, g.custom_model_url.trim().to_string()))
-            .unwrap_or_else(|_| (crate::config::ModelDownloadSource::default(), String::new())),
-        None => (crate::config::ModelDownloadSource::default(), String::new()),
-    };
+    let (download_source, custom_url, http_proxy, danger_accept_invalid_certs) =
+        match app.try_state::<crate::config::SharedConfig>() {
+            Some(state) => state
+                .lock()
+                .map(|g| (
+                    g.model_download_source,
+                    g.custom_model_url.trim().to_string(),
+                    g.http_proxy.trim().to_string(),
+                    g.danger_accept_invalid_certs,
+                ))
+                .unwrap_or_else(|_| (
+                    crate::config::ModelDownloadSource::default(),
+                    String::new(),
+                    String::new(),
+                    false,
+                )),
+            None => (
+                crate::config::ModelDownloadSource::default(),
+                String::new(),
+                String::new(),
+                false,
+            ),
+        };
 
-    // Timeout generoso de transferência (30min) com connect_timeout ágil (10s)
+    // Timeout generoso de transferência (30min) com connect_timeout ágil (15s)
     // para não travar quando um espelho estiver fora do ar ou bloqueado por firewall.
-    let client = reqwest::blocking::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
+    let mut builder = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(30 * 60))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WhisperApp/0.4.14")
-        .build()
-        .context("falha ao criar HTTP client")?;
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WhisperApp/0.4.15");
+
+    if !http_proxy.is_empty() {
+        match reqwest::Proxy::all(&http_proxy) {
+            Ok(proxy) => {
+                eprintln!("[models] usando proxy HTTP customizado: {}", http_proxy);
+                builder = builder.proxy(proxy);
+            }
+            Err(e) => {
+                eprintln!("[models] URL de proxy inválida '{}': {:#}", http_proxy, e);
+            }
+        }
+    }
+
+    if danger_accept_invalid_certs {
+        eprintln!("[models] atenção: aceitando certificados SSL corporativos/inválidos");
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+
+    let client = builder.build().context("falha ao criar HTTP client")?;
 
     let github_url = format!(
         "https://github.com/rlucio01/whisper-app/releases/download/models/{}",
@@ -334,10 +367,20 @@ fn download_blocking<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<
     }
 
     let mut response_opt = None;
-    let mut last_error = String::new();
+    let mut attempt_errors: Vec<String> = Vec::new();
 
     for url in &urls_to_try {
-        eprintln!("[models] tentando baixar de: {}", url);
+        let label = if url.contains("github.com") {
+            "GitHub Releases"
+        } else if url.contains("huggingface.co") {
+            "Hugging Face Oficial"
+        } else if url.contains("hf-mirror.com") {
+            "Espelho HF-Mirror"
+        } else {
+            "URL Personalizada"
+        };
+
+        eprintln!("[models] tentando baixar de [{}]: {}", label, url);
         match client.get(url).send() {
             Ok(resp) => {
                 let status = resp.status();
@@ -345,21 +388,28 @@ fn download_blocking<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<
                     response_opt = Some((resp, url.clone()));
                     break;
                 } else {
-                    last_error = format!("HTTP {} ({})", status, url);
-                    eprintln!("[models] fonte retornou status {}: {}", status, url);
+                    let err = format!("{} ({}) retornou HTTP {}", label, url, status);
+                    eprintln!("[models] {}", err);
+                    attempt_errors.push(err);
                 }
             }
             Err(e) => {
-                last_error = format!("{:#} ({})", e, url);
-                eprintln!("[models] falha ao conectar na fonte {}: {:#}", url, e);
+                let err = format!("{} ({}) falhou: {:#}", label, url, e);
+                eprintln!("[models] {}", err);
+                attempt_errors.push(err);
             }
         }
     }
 
     let (mut response, active_url) = response_opt.ok_or_else(|| {
+        let details = if attempt_errors.is_empty() {
+            "Nenhuma fonte válida configurada.".to_string()
+        } else {
+            attempt_errors.join("\n• ")
+        };
         anyhow!(
-            "Não foi possível baixar de nenhuma das fontes tentadas (último erro: {}). Dica: em redes corporativas com proxy/firewall, utilize GitHub Releases, informe uma URL personalizada ou use o botão 'Importar .bin'.",
-            last_error
+            "Não foi possível baixar de nenhuma das fontes tentadas:\n• {}\n\nDica para redes corporativas:\n1. Clique em 'Abrir pasta de modelos' acima e cole o arquivo .bin baixado pelo navegador.\n2. Ou configure o Proxy HTTP e marque 'Aceitar certificados de inspeção SSL' nas configurações.",
+            details
         )
     })?;
 
