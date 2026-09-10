@@ -520,6 +520,12 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
     return () => unlistens.forEach((fn) => fn());
   }, []);
 
+  useEffect(() => {
+    if (gpuStatus && !gpuStatus.is_nvidia_detected && config?.inference_device === "gpu") {
+      setConfig((prev) => (prev ? { ...prev, inference_device: "auto" } : null));
+    }
+  }, [gpuStatus?.is_nvidia_detected, config?.inference_device]);
+
   const handleDownloadGpu = () => {
     setGpuError(null);
     invoke("download_gpu_runtime").catch((err) => setGpuError(String(err)));
@@ -566,8 +572,12 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
     setBenchmarkError(null);
     setBenchmarkResult(null);
     try {
+      const selectedDevice =
+        config?.inference_device === "gpu" && gpuStatus !== null && !gpuStatus.is_nvidia_detected
+          ? "cpu"
+          : config?.inference_device || "auto";
       const res = await invoke<BenchmarkResult>("run_benchmark", {
-        device: config?.inference_device || "auto",
+        device: selectedDevice,
       });
       setBenchmarkResult(res);
     } catch (err: any) {
@@ -1056,9 +1066,19 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                     <button
                       type="button"
                       className={`toggle-btn ${config.inference_device === "gpu" ? "active" : ""}`}
-                      onClick={() => setConfig({ ...config, inference_device: "gpu" })}
+                      disabled={gpuStatus !== null && !gpuStatus.is_nvidia_detected}
+                      title={
+                        gpuStatus !== null && !gpuStatus.is_nvidia_detected
+                          ? "Aceleração por GPU local requer placa de vídeo NVIDIA dedicada com suporte a CUDA."
+                          : "Executar inferência na placa de vídeo NVIDIA"
+                      }
+                      onClick={() => {
+                        if (!gpuStatus || gpuStatus.is_nvidia_detected) {
+                          setConfig({ ...config, inference_device: "gpu" });
+                        }
+                      }}
                     >
-                      GPU
+                      GPU{gpuStatus !== null && !gpuStatus.is_nvidia_detected ? " (Requer NVIDIA)" : ""}
                     </button>
                     <button
                       type="button"
@@ -1070,18 +1090,27 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   </div>
                   <p className="field-hint">
                     {(config.inference_device || "auto") === "auto"
-                      ? gpuStatus?.installed
-                        ? "Modo automático: Módulo NVIDIA CUDA ativo. Máxima velocidade com aceleração física na placa de vídeo."
-                        : "Modo automático: Executando via processador (CPU com aceleração AVX). Baixe o módulo CUDA acima para ativar a GPU."
+                      ? gpuStatus?.is_nvidia_detected
+                        ? gpuStatus.installed
+                          ? "Modo automático: Módulo NVIDIA CUDA ativo. Máxima velocidade com aceleração física na placa de vídeo."
+                          : "Modo automático: Executando via processador (CPU com aceleração AVX). Baixe o módulo CUDA acima para ativar a aceleração na GPU."
+                        : `Modo automático: Executando via processador (CPU com ${hardware?.cpu_cores || 12} núcleos e aceleração AVX). Modo ideal para o seu computador.`
                       : config.inference_device === "gpu"
-                      ? gpuStatus?.installed
-                        ? "Modo GPU ativo: Execução forçada na placa NVIDIA via núcleos CUDA."
-                        : "Modo GPU selecionado, mas o Módulo CUDA ainda não foi baixado (baixe acima para habilitar)."
+                      ? gpuStatus?.is_nvidia_detected
+                        ? gpuStatus.installed
+                          ? "Modo GPU ativo: Execução forçada na placa NVIDIA via núcleos CUDA."
+                          : "Modo GPU selecionado, mas o Módulo CUDA ainda não foi baixado (baixe no botão acima para habilitar)."
+                        : `Aceleração por GPU requer placa de vídeo dedicada NVIDIA (CUDA). Neste computador com gráficos ${hardware?.primary_gpu?.name || "Intel"}, utilize o modo Automático ou CPU.`
                       : "Forçando execução puramente pelo processador (CPU com aceleração AVX)."}
                   </p>
-                  {config.inference_device === "gpu" && !gpuStatus?.installed && (
+                  {config.inference_device === "gpu" && gpuStatus?.is_nvidia_detected && !gpuStatus.installed && (
                     <p className="field-hint" style={{ color: "#fbbf24", fontWeight: 500, marginTop: "0.25rem" }}>
                       O módulo NVIDIA CUDA ainda não está instalado. Baixe o módulo no botão acima para usar a GPU.
+                    </p>
+                  )}
+                  {config.inference_device === "gpu" && gpuStatus !== null && !gpuStatus.is_nvidia_detected && (
+                    <p className="field-hint" style={{ color: "#fbbf24", fontWeight: 500, marginTop: "0.25rem" }}>
+                      Placa NVIDIA não detectada neste computador. Aceleração GPU indisponível. Selecione Automático ou CPU.
                     </p>
                   )}
                 </section>

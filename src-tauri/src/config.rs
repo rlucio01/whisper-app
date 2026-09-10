@@ -451,13 +451,20 @@ impl AppConfig {
 
     /// Determina se a inferência local deve tentar utilizar aceleração por GPU.
     pub fn should_use_gpu(&self) -> bool {
+        let hw = crate::hardware::detect_hardware();
+        let has_nvidia = hw
+            .gpus
+            .iter()
+            .any(|g| g.vendor.to_lowercase().contains("nvidia"));
+
+        if !has_nvidia {
+            return false;
+        }
+
         match self.inference_device {
             InferenceDevice::Gpu => true,
             InferenceDevice::Cpu => false,
-            InferenceDevice::Auto => {
-                let hw = crate::hardware::detect_hardware();
-                hw.recommended_device == "gpu"
-            }
+            InferenceDevice::Auto => hw.recommended_device == "gpu",
         }
     }
 }

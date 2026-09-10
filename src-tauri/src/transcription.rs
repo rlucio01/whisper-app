@@ -717,6 +717,24 @@ pub fn run_local_benchmark<R: Runtime>(
     }
 
     if use_gpu {
+        let hw = crate::hardware::detect_hardware();
+        let is_nvidia = hw
+            .gpus
+            .iter()
+            .any(|g| g.vendor.to_lowercase().contains("nvidia"));
+
+        if !is_nvidia {
+            let gpu_name = hw
+                .primary_gpu
+                .map(|g| g.name)
+                .unwrap_or_else(|| "Integrada".to_string());
+            return Err(anyhow!(
+                "Este computador possui gráficos integrados ({}), que não possuem suporte a NVIDIA CUDA.\n\
+                 Selecione o modo \"Automático\" ou \"CPU\" para testar o processador com aceleração AVX.",
+                gpu_name
+            ));
+        }
+
         if !crate::gpu_runtime::is_cuda_runtime_installed(app) {
             return Err(anyhow!(
                 "Aceleração por GPU selecionada, mas o Módulo NVIDIA CUDA ainda não foi baixado.\n\

@@ -541,6 +541,16 @@ select.text-input option {
   color: rgba(255, 255, 255, 0.95);
 }
 
+.toggle-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.toggle-btn:disabled:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
 .checkbox-row {
   display: flex;
   align-items: center;
