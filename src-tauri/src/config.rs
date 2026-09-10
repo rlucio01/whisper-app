@@ -111,6 +111,28 @@ impl Default for InferenceDevice {
     }
 }
 
+/// Fonte preferencial de download para os modelos Whisper locais.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelDownloadSource {
+    /// Automático: tenta fontes resilientes (GitHub -> Hugging Face -> Espelho).
+    Auto,
+    /// Repositório GitHub Releases (ideal para redes corporativas que bloqueiam Hugging Face).
+    Github,
+    /// Apenas Hugging Face oficial (huggingface.co).
+    HuggingFace,
+    /// Espelho alternativo (hf-mirror.com).
+    HfMirror,
+    /// URL personalizada fornecida pelo usuário (intranet, servidor local ou bucket próprio).
+    Custom,
+}
+
+impl Default for ModelDownloadSource {
+    fn default() -> Self {
+        ModelDownloadSource::Auto
+    }
+}
+
 /// Como sinalizar visualmente que a gravação está em curso (importante quando
 /// o app está no tray e outras janelas cobrem a UI principal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -359,6 +381,18 @@ pub struct AppConfig {
     /// Dicionário pessoal, termos frequentes e regras de substituição automática.
     #[serde(default)]
     pub dictionary: crate::dictionary::DictionaryConfig,
+
+    /// Fonte preferencial para download de modelos locais (auto, github, huggingface, hf_mirror, custom).
+    #[serde(default)]
+    pub model_download_source: ModelDownloadSource,
+
+    /// URL base customizada para download de modelos (usada quando model_download_source = custom ou auto).
+    #[serde(default)]
+    pub custom_model_url: String,
+
+    /// Se `true`, remove o ponto final automático ao término das frases ditadas.
+    #[serde(default)]
+    pub remove_trailing_period: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -443,6 +477,9 @@ impl Default for AppConfig {
             mute_audio_while_recording: false,
             autostart_initialized: false,
             dictionary: crate::dictionary::DictionaryConfig::default(),
+            model_download_source: ModelDownloadSource::default(),
+            custom_model_url: String::new(),
+            remove_trailing_period: false,
         }
     }
 }

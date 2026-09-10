@@ -161,6 +161,34 @@ pub fn open_config_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     Ok(())
 }
 
+/// Abre o file explorer diretamente na pasta onde os modelos do Whisper ficam salvos.
+#[tauri::command]
+pub fn open_models_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let dir = models::models_dir(&app).map_err(|e| format!("{:#}", e))?;
+    tauri_plugin_opener::open_path(dir, None::<&str>).map_err(|e| format!("{:#}", e))?;
+    Ok(())
+}
+
+/// Importa um arquivo de modelo (.bin) do disco diretamente para o Whisper App.
+#[tauri::command]
+pub fn import_whisper_model<R: Runtime>(
+    app: AppHandle<R>,
+    name: String,
+    source_path: String,
+) -> Result<(), String> {
+    let m = WhisperModel::from_slug(&name)
+        .ok_or_else(|| format!("modelo desconhecido: {}", name))?;
+    let path = std::path::PathBuf::from(source_path.trim());
+    models::import_model(&app, m, &path).map_err(|e| format!("{:#}", e))
+}
+
+/// Dispara uma prévia temporária da barra flutuante (overlay) para testar visibilidade na tela.
+#[tauri::command]
+pub fn test_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::visual::preview_overlay(&app);
+    Ok(())
+}
+
 /// Lista os microfones disponíveis, pro dropdown de escolha em settings.
 #[tauri::command]
 pub fn list_microphones() -> Result<Vec<String>, String> {

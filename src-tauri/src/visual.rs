@@ -97,19 +97,37 @@ fn show_overlay<R: Runtime>(app: &AppHandle<R>) {
     };
     let cfg = current_overlay_config(app);
     apply_scale(&window, cfg.scale);
-    position_overlay(&window, cfg.position);
-    // Reafirma a prioridade nativa toda vez que a barra reaparece. Alguns
-    // programas recriam sua janela ou promovem a própria Z-order depois de a
-    // nossa janela ter sido criada, deixando o alwaysOnTop inicial de lado.
-    // Não pedimos foco: a barra continua sem interferir no destino do texto.
+    position_overlay(&window, cfg.position, cfg.scale);
+    // Reafirma a prioridade nativa toda vez que a barra reaparece.
     let _ = window.set_always_on_top(true);
     let _ = window.show();
+    // Reafirma a posição logo após o show, garantindo que o compositor do Windows
+    // aplique as coordenadas corretas mesmo no primeiro show da sessão.
+    position_overlay(&window, cfg.position, cfg.scale);
+    let _ = window.set_always_on_top(true);
 }
 
 fn hide_overlay<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = window.hide();
     }
+}
+
+/// Mostra uma prévia temporária do overlay por 3 segundos para teste visual.
+pub fn preview_overlay<R: Runtime>(app: &AppHandle<R>) {
+    show_overlay(app);
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        if let Some(state) = app_handle.try_state::<crate::hotkey::SharedRecordingActive>() {
+            if let Ok(active) = state.lock() {
+                if *active {
+                    return;
+                }
+            }
+        }
+        hide_overlay(&app_handle);
+    });
 }
 
 /// Redimensiona a janela nativa do overlay conforme `overlay.scale` — é
@@ -122,21 +140,78 @@ fn hide_overlay<R: Runtime>(app: &AppHandle<R>) {
 /// tamanho CSS diferente do que o transform assume, cortando/desalinhando
 /// o conteúdo.
 fn apply_scale<R: Runtime>(window: &tauri::WebviewWindow<R>, scale: f32) {
-    let scale = scale.clamp(MIN_SCALE, MAX_SCALE) as f64;
+    let scale = (scale as f64).clamp(MIN_SCALE as f64, MAX_SCALE as f64);
     let width = BASE_WIDTH * scale;
     let height = BASE_HEIGHT * scale;
     let _ = window.set_size(LogicalSize::new(width, height));
 }
 
+/// Resolve o monitor onde o overlay deve ser exibido.
+///
+/// No Windows, `window.current_monitor()` retorna `None` se a janela estiver
+/// oculta (`visible: false`), o que impedia o posicionamento inicial em
+/// notebooks e telas secundárias.
+///
+/// Esta função resolve com fallback robusto:
+/// 1. Monitor onde está o cursor do mouse (onde o usuário está interagindo).
+/// 2. Monitor atual da janela overlay (`current_monitor`).
+/// 3. Monitor primário do sistema (`primary_monitor`).
+/// 4. Primeiro monitor disponível (`available_monitors`).
+fn resolve_target_monitor<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Option<tauri::Monitor> {
+    if let Ok(cursor_pos) = window.cursor_position() {
+        if let Ok(monitors) = window.available_monitors() {
+            let cx = cursor_pos.x as i32;
+            let cy = cursor_pos.y as i32;
+            for mon in monitors {
+                let pos = mon.position();
+                let size = mon.size();
+                if cx >= pos.x
+                    && cx < pos.x + size.width as i32
+                    && cy >= pos.y
+                    && cy < pos.y + size.height as i32
+                {
+                    return Some(mon);
+                }
+            }
+        }
+    }
+
+    if let Ok(Some(mon)) = window.current_monitor() {
+        return Some(mon);
+    }
+
+    if let Ok(Some(mon)) = window.primary_monitor() {
+        return Some(mon);
+    }
+
+    window.available_monitors().ok().and_then(|m| m.into_iter().next())
+}
+
 /// Reposiciona o overlay no centro-horizontal, perto do topo ou do fundo
 /// (conforme `overlay.position`) da tela em que a janela está.
-fn position_overlay<R: Runtime>(window: &tauri::WebviewWindow<R>, position: OverlayPosition) {
-    let Ok(Some(monitor)) = window.current_monitor() else {
+fn position_overlay<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    position: OverlayPosition,
+    scale: f32,
+) {
+    let Some(monitor) = resolve_target_monitor(window) else {
         return;
     };
     let mon_size = monitor.size();
     let mon_pos = monitor.position();
-    let win_size = window.outer_size().unwrap_or_default();
+    let scale_factor = monitor.scale_factor();
+
+    // Dimensão física calculada deterministicamente a partir da escala e DPI da tela.
+    // Isso evita usar `outer_size()` quando a janela está oculta (onde pode retornar 0x0
+    // no Windows, quebrando o cálculo de centralização em telas de notebooks).
+    let scale = (scale as f64).clamp(MIN_SCALE as f64, MAX_SCALE as f64);
+    let target_phys_w = (BASE_WIDTH * scale * scale_factor).round() as i32;
+    let target_phys_h = (BASE_HEIGHT * scale * scale_factor).round() as i32;
+
+    let (win_w, win_h) = match window.outer_size() {
+        Ok(sz) if sz.width > 0 && sz.height > 0 => (sz.width as i32, sz.height as i32),
+        _ => (target_phys_w, target_phys_h),
+    };
 
     // Fração da altura do monitor onde fica o CENTRO vertical da barra.
     let y_fraction = match position {
@@ -144,9 +219,16 @@ fn position_overlay<R: Runtime>(window: &tauri::WebviewWindow<R>, position: Over
         OverlayPosition::Top => 0.12,
     };
 
-    let x = mon_pos.x + (mon_size.width as i32 - win_size.width as i32) / 2;
-    let y = mon_pos.y + (mon_size.height as f64 * y_fraction) as i32
-        - (win_size.height as i32 / 2);
+    let center_x = mon_pos.x + (mon_size.width as i32 - win_w) / 2;
+    let center_y = mon_pos.y + (mon_size.height as f64 * y_fraction) as i32 - (win_h / 2);
+
+    // Clamping para garantir que o overlay JAMAIS fique fora dos limites da tela
+    // (ex: cortado pelo topo, pela lateral ou engolido pela barra de tarefas do Windows).
+    let max_x = (mon_pos.x + mon_size.width as i32 - win_w).max(mon_pos.x);
+    let max_y = (mon_pos.y + mon_size.height as i32 - win_h).max(mon_pos.y);
+
+    let x = center_x.clamp(mon_pos.x, max_x);
+    let y = center_y.clamp(mon_pos.y, max_y);
 
     let _ = window.set_position(PhysicalPosition { x, y });
 }

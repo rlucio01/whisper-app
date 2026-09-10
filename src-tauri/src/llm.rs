@@ -209,6 +209,13 @@ fn llm_thread_loop<R: Runtime>(
             final_text
         };
 
+        // Remove ponto final do término da frase caso configurado pelo usuário
+        let final_text = if cfg.remove_trailing_period {
+            strip_trailing_period(&final_text)
+        } else {
+            final_text
+        };
+
         // Registra no rastreador de frequência para sugerir vocabulário
         crate::dictionary::record_dictated_text(&app, &final_text);
 
@@ -572,7 +579,25 @@ fn build_system_prompt(cfg: &AppConfig, active_app: Option<&ActiveApp>) -> Strin
         }
     }
 
+    if cfg.remove_trailing_period {
+        rules.push_str(
+            "\n\n- NÃO coloque ponto final (.) no término da frase ou resposta, \
+             a menos que seja reticências (...) ou pontuação interrogativa (?) ou exclamativa (!)."
+        );
+    }
+
     rules
+}
+
+/// Remove ponto final (.) ao término da frase ditada, preservando reticências (...),
+/// ponto de interrogação (?) e ponto de exclamação (!).
+pub fn strip_trailing_period(text: &str) -> String {
+    let trimmed = text.trim_end();
+    if trimmed.ends_with('.') && !trimmed.ends_with("...") {
+        trimmed[..trimmed.len() - 1].trim_end().to_string()
+    } else {
+        text.to_string()
+    }
 }
 
 /// Retorna um trecho adicional de prompt baseado na categoria do app em foco.

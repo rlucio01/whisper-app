@@ -23,6 +23,12 @@ type OverlayPosition = "top" | "bottom";
 type TranscriptionProvider = "local" | "openai_cloud" | "groq_cloud";
 type WhisperModelSlug = "tiny" | "base" | "small" | "medium" | "large_turbo";
 type InferenceDevice = "auto" | "gpu" | "cpu";
+export type ModelDownloadSource =
+  | "auto"
+  | "github"
+  | "huggingface"
+  | "hf_mirror"
+  | "custom";
 
 interface GpuInfo {
   name: string;
@@ -120,6 +126,9 @@ interface AppConfig {
   mute_audio_while_recording: boolean;
   autostart_initialized?: boolean;
   dictionary?: DictionaryConfig;
+  model_download_source?: ModelDownloadSource;
+  custom_model_url?: string;
+  remove_trailing_period?: boolean;
 }
 
 export interface WordReplacement {
@@ -303,6 +312,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
   const [gpuStatus, setGpuStatus] = useState<GpuRuntimeStatus | null>(null);
   const [gpuProgress, setGpuProgress] = useState<GpuRuntimeProgress | null>(null);
   const [gpuError, setGpuError] = useState<string | null>(null);
+  const [testingOverlay, setTestingOverlay] = useState(false);
 
   // Estados do Dicionário Pessoal e Frequência
   const [frequentWords, setFrequentWords] = useState<[string, number][]>([]);
@@ -896,11 +906,38 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
               </p>
             </section>
 
+            <section className="field" style={{ marginTop: "1.25rem" }}>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={config.remove_trailing_period ?? false}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      remove_trailing_period: e.target.checked,
+                    })
+                  }
+                />
+                <span>Remover ponto final das frases</span>
+              </label>
+              <p className="field-hint">
+                Elimina o ponto final automático ao término da frase ditada (funciona com ou sem formatação de IA).
+              </p>
+            </section>
+
             {config.transcription_provider === "local" && (
               <div style={{ marginTop: "1.5rem" }}>
                 <ModelPicker
                   selected={config.whisper_model}
                   onSelect={(slug) => setConfig({ ...config, whisper_model: slug })}
+                  downloadSource={config.model_download_source ?? "auto"}
+                  onDownloadSourceChange={(source) =>
+                    setConfig({ ...config, model_download_source: source })
+                  }
+                  customModelUrl={config.custom_model_url ?? ""}
+                  onCustomModelUrlChange={(url) =>
+                    setConfig({ ...config, custom_model_url: url })
+                  }
                 />
               </div>
             )}
@@ -1281,6 +1318,25 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                 Pula a chamada de LLM e cola exatamente o que foi transcrito.
               </p>
             </section>
+
+            <section className="field" style={{ marginTop: "1rem" }}>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={config.remove_trailing_period ?? false}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      remove_trailing_period: e.target.checked,
+                    })
+                  }
+                />
+                <span>Remover ponto final das frases</span>
+              </label>
+              <p className="field-hint">
+                Elimina o ponto final automático ao término da frase ditada (funciona com ou sem formatação de IA).
+              </p>
+            </section>
           </div>
 
           <div className="settings-card">
@@ -1655,6 +1711,46 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                       })
                     }
                   />
+                </div>
+
+                <div
+                  style={{
+                    marginTop: "1.5rem",
+                    paddingTop: "1rem",
+                    borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: "0.75rem",
+                  }}
+                >
+                  <div>
+                    <span style={{ fontWeight: 500, fontSize: "0.9rem" }}>
+                      Testar visualização
+                    </span>
+                    <p className="field-hint" style={{ margin: "0.2rem 0 0" }}>
+                      Exibe a barra flutuante por 3 segundos para você validar o tamanho e a posição na tela do seu notebook/monitor.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={testingOverlay}
+                    onClick={async () => {
+                      setTestingOverlay(true);
+                      try {
+                        await invoke("test_overlay");
+                      } catch (e) {
+                        alert(`Erro ao testar overlay: ${e}`);
+                      } finally {
+                        setTimeout(() => setTestingOverlay(false), 3500);
+                      }
+                    }}
+                    style={{ whiteSpace: "nowrap" }}
+                  >
+                    {testingOverlay ? "Exibindo na tela…" : "Testar barra flutuante"}
+                  </button>
                 </div>
               </section>
             )}
@@ -2031,6 +2127,10 @@ function UpdateSection({ updater }: UpdateSectionProps) {
 interface ModelPickerProps {
   selected: WhisperModelSlug;
   onSelect: (slug: WhisperModelSlug) => void;
+  downloadSource: ModelDownloadSource;
+  onDownloadSourceChange: (source: ModelDownloadSource) => void;
+  customModelUrl: string;
+  onCustomModelUrlChange: (url: string) => void;
 }
 
 /** Payload dos eventos emitidos pelo Rust em `models.rs::spawn_download`. */
@@ -2049,7 +2149,14 @@ interface DownloadError {
 
 /** Lista os 5 modelos disponíveis mostrando qual está baixado, com botões
  *  de baixar/apagar e barra de progresso durante o download. */
-function ModelPicker({ selected, onSelect }: ModelPickerProps) {
+function ModelPicker({
+  selected,
+  onSelect,
+  downloadSource,
+  onDownloadSourceChange,
+  customModelUrl,
+  onCustomModelUrlChange,
+}: ModelPickerProps) {
   const [models, setModels] = useState<ModelStatus[]>([]);
   const [progress, setProgress] = useState<Record<string, DownloadProgress>>(
     {},
@@ -2129,8 +2236,116 @@ function ModelPicker({ selected, onSelect }: ModelPickerProps) {
     }
   };
 
+  const importModel = async (slug: WhisperModelSlug) => {
+    const filePath = prompt(
+      "Cole o caminho completo do arquivo .bin no seu computador (ex: C:\\Downloads\\ggml-tiny-q5_1.bin):",
+    );
+    if (!filePath || !filePath.trim()) return;
+    try {
+      await invoke("import_whisper_model", {
+        name: slug,
+        sourcePath: filePath.trim(),
+      });
+      refresh();
+      alert("Modelo importado com sucesso!");
+    } catch (e) {
+      alert(`Falha ao importar modelo: ${e}`);
+    }
+  };
+
   return (
     <div className="model-picker">
+      <div className="model-source-card">
+        <div className="model-source-header">
+          <div className="model-source-title-group">
+            <span className="model-source-title">Origem dos Modelos Whisper</span>
+            <span className="model-source-subtitle">
+              Escolha a fonte para download ou gerencie arquivos locais
+            </span>
+          </div>
+          <div className="model-header-actions">
+            <button
+              type="button"
+              className="model-header-btn"
+              onClick={async () => {
+                try {
+                  await invoke("open_models_folder");
+                } catch (e) {
+                  alert(`Falha ao abrir pasta de modelos: ${e}`);
+                }
+              }}
+              title="Abre a pasta models no Windows Explorer para gerenciar ou colar arquivos .bin"
+            >
+              <span>📁</span>
+              <span>Abrir pasta de modelos</span>
+            </button>
+            <button
+              type="button"
+              className="model-header-btn"
+              onClick={() => refresh()}
+              title="Verificar arquivos presentes no disco"
+            >
+              <span>🔄</span>
+              <span>Recarregar</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="model-source-select-group">
+          <label className="field-label" style={{ fontSize: "0.82rem", marginBottom: "0.2rem" }}>
+            Fonte de download preferencial:
+          </label>
+          <select
+            className="model-source-select"
+            value={downloadSource}
+            onChange={(e) =>
+              onDownloadSourceChange(e.target.value as ModelDownloadSource)
+            }
+          >
+            <option value="auto">
+              Automático (Resiliente: tenta GitHub → Hugging Face → Espelho)
+            </option>
+            <option value="github">
+              GitHub Releases (Recomendado para firewalls corporativos)
+            </option>
+            <option value="huggingface">
+              Hugging Face Oficial (huggingface.co)
+            </option>
+            <option value="hf_mirror">
+              Espelho Hugging Face (hf-mirror.com)
+            </option>
+            <option value="custom">
+              Personalizado (URL Própria / Intranet Corporativa / Bucket S3)
+            </option>
+          </select>
+        </div>
+
+        {downloadSource === "custom" && (
+          <div className="model-custom-url-group">
+            <label className="field-label" style={{ fontSize: "0.82rem", marginBottom: "0.2rem" }}>
+              URL Base Personalizada:
+            </label>
+            <input
+              type="text"
+              className="text-input"
+              placeholder="Ex: https://meu-servidor.empresa.com/modelos ou https://github.com/usuario/repo/releases/download/v1.0"
+              value={customModelUrl}
+              onChange={(e) => onCustomModelUrlChange(e.target.value)}
+            />
+            <span className="field-hint" style={{ fontSize: "0.74rem", margin: 0 }}>
+              O app baixará <code>&#123;url&#125;/ggml-&#123;modelo&#125;.bin</code>. Se passar uma URL direta terminando em <code>.bin</code>, ela será usada diretamente.
+            </span>
+          </div>
+        )}
+
+        <div className="model-corporate-tip">
+          <span style={{ fontSize: "1rem", flexShrink: 0 }}>💡</span>
+          <div>
+            <strong>Ambientes corporativos e proxies restritos:</strong> Se a rede da empresa bloquear domínios como Hugging Face, utilize a opção <strong>GitHub Releases</strong>, informe uma <strong>URL Personalizada</strong> interna ou use o botão <strong>"Importar .bin"</strong> nos modelos abaixo.
+          </div>
+        </div>
+      </div>
+
       {models.map((m) => {
         const prog = progress[m.slug];
         const err = errors[m.slug];
@@ -2164,7 +2379,7 @@ function ModelPicker({ selected, onSelect }: ModelPickerProps) {
               {m.downloaded ? (
                 <button
                   type="button"
-                  className="btn-secondary btn-small"
+                  className="model-row-btn model-row-btn-danger"
                   onClick={() => deleteModel(m.slug)}
                 >
                   Apagar
@@ -2172,19 +2387,31 @@ function ModelPicker({ selected, onSelect }: ModelPickerProps) {
               ) : prog ? (
                 <button
                   type="button"
-                  className="btn-secondary btn-small"
+                  className="model-row-btn model-row-btn-secondary"
                   disabled
+                  style={{ opacity: 0.7, cursor: "wait" }}
                 >
                   Baixando…
                 </button>
               ) : (
-                <button
-                  type="button"
-                  className="btn-secondary btn-small"
-                  onClick={() => startDownload(m.slug)}
-                >
-                  Baixar
-                </button>
+                <div className="model-action-group">
+                  <button
+                    type="button"
+                    className="model-row-btn model-row-btn-download"
+                    onClick={() => startDownload(m.slug)}
+                    title="Baixar automaticamente da fonte selecionada"
+                  >
+                    Baixar
+                  </button>
+                  <button
+                    type="button"
+                    className="model-row-btn model-row-btn-secondary"
+                    onClick={() => importModel(m.slug)}
+                    title="Importar um arquivo .bin existente no computador"
+                  >
+                    Importar .bin
+                  </button>
+                </div>
               )}
             </div>
 
@@ -2202,7 +2429,33 @@ function ModelPicker({ selected, onSelect }: ModelPickerProps) {
               </div>
             )}
 
-            {err && <p className="model-error">{err}</p>}
+            {err && (
+              <div
+                style={{
+                  marginTop: "0.5rem",
+                  padding: "0.5rem 0.75rem",
+                  background: "rgba(239, 68, 68, 0.1)",
+                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                  borderRadius: "6px",
+                }}
+              >
+                <p className="model-error" style={{ margin: 0 }}>
+                  {err}
+                </p>
+                <p
+                  className="field-hint"
+                  style={{
+                    margin: "0.3rem 0 0",
+                    color: "#fca5a5",
+                    fontSize: "0.78rem",
+                  }}
+                >
+                  Dica: tente mudar a <strong>Fonte de download</strong> para o{" "}
+                  <em>Espelho Alternativo</em>, ou clique em{" "}
+                  <em>"Abrir pasta de modelos"</em> para colocar o arquivo baixado no navegador.
+                </p>
+              </div>
+            )}
           </div>
         );
       })}

@@ -45,8 +45,8 @@ impl WhisperModel {
             WhisperModel::Tiny => ModelMeta {
                 filename: "ggml-tiny-q5_1.bin",
                 urls: &[
-                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
                 ],
                 size_mb: 31,
                 display_name: "Tiny (~31MB): mais rápido, menos preciso",
@@ -54,8 +54,8 @@ impl WhisperModel {
             WhisperModel::Base => ModelMeta {
                 filename: "ggml-base-q5_1.bin",
                 urls: &[
-                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
                 ],
                 size_mb: 59,
                 display_name: "Base (~59MB): bom para testes",
@@ -63,8 +63,8 @@ impl WhisperModel {
             WhisperModel::Small => ModelMeta {
                 filename: "ggml-small-q5_1.bin",
                 urls: &[
-                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
                 ],
                 size_mb: 181,
                 display_name: "Small (~181MB): recomendado para uso diário",
@@ -72,8 +72,8 @@ impl WhisperModel {
             WhisperModel::Medium => ModelMeta {
                 filename: "ggml-medium-q5_0.bin",
                 urls: &[
-                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
+                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
                 ],
                 size_mb: 514,
                 display_name: "Medium (~514MB): mais preciso, mais lento",
@@ -81,8 +81,8 @@ impl WhisperModel {
             WhisperModel::LargeTurbo => ModelMeta {
                 filename: "ggml-large-v3-turbo-q5_0.bin",
                 urls: &[
-                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+                    "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
                 ],
                 size_mb: 574,
                 display_name: "Large-v3 Turbo (~574MB): máxima precisão",
@@ -119,9 +119,8 @@ impl WhisperModel {
     }
 }
 
-/// Retorna o path onde o arquivo do modelo `m` fica salvo.
-/// Cria a pasta `models/` se ainda não existe.
-pub fn file_path<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<PathBuf> {
+/// Retorna a pasta onde os modelos do Whisper ficam armazenados.
+pub fn models_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf> {
     let dir = app
         .path()
         .app_data_dir()
@@ -129,7 +128,37 @@ pub fn file_path<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<Path
     let models_dir = dir.join("models");
     fs::create_dir_all(&models_dir)
         .with_context(|| format!("falha ao criar pasta {}", models_dir.display()))?;
-    Ok(models_dir.join(m.meta().filename))
+    Ok(models_dir)
+}
+
+/// Retorna o path onde o arquivo do modelo `m` fica salvo.
+pub fn file_path<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<PathBuf> {
+    let dir = models_dir(app)?;
+    Ok(dir.join(m.meta().filename))
+}
+
+/// Importa um arquivo de modelo local existente (.bin) diretamente para a pasta de modelos.
+pub fn import_model<R: Runtime>(
+    app: &AppHandle<R>,
+    m: WhisperModel,
+    source_path: &std::path::Path,
+) -> Result<()> {
+    if !source_path.exists() {
+        return Err(anyhow!(
+            "arquivo de origem não encontrado: {}",
+            source_path.display()
+        ));
+    }
+    let target_path = file_path(app, m)?;
+    fs::copy(source_path, &target_path)
+        .with_context(|| format!("falha ao copiar modelo para {}", target_path.display()))?;
+    let _ = app.emit(
+        "model-download-complete",
+        DownloadComplete {
+            name: m.slug().to_string(),
+        },
+    );
+    Ok(())
 }
 
 /// Estrutura enviada para a UI listando o estado de cada modelo.
@@ -228,38 +257,108 @@ fn download_blocking<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<
         },
     );
 
-    // Timeout generoso: 30min pro modelo maior (~600MB) em conexão lenta.
+    let (download_source, custom_url) = match app.try_state::<crate::config::SharedConfig>() {
+        Some(state) => state
+            .lock()
+            .map(|g| (g.model_download_source, g.custom_model_url.trim().to_string()))
+            .unwrap_or_else(|_| (crate::config::ModelDownloadSource::default(), String::new())),
+        None => (crate::config::ModelDownloadSource::default(), String::new()),
+    };
+
+    // Timeout generoso de transferência (30min) com connect_timeout ágil (10s)
+    // para não travar quando um espelho estiver fora do ar ou bloqueado por firewall.
     let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30 * 60))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WhisperApp/0.4.13")
         .build()
         .context("falha ao criar HTTP client")?;
+
+    let github_url = format!(
+        "https://github.com/rlucio01/whisper-app/releases/download/models/{}",
+        meta.filename
+    );
+
+    let custom_built_url = if !custom_url.is_empty() {
+        if custom_url.ends_with(".bin") {
+            Some(custom_url.clone())
+        } else {
+            Some(format!("{}/{}", custom_url.trim_end_matches('/'), meta.filename))
+        }
+    } else {
+        None
+    };
+
+    let mut urls_to_try: Vec<String> = Vec::new();
+
+    match download_source {
+        crate::config::ModelDownloadSource::Custom => {
+            if let Some(u) = custom_built_url {
+                urls_to_try.push(u);
+            } else {
+                return Err(anyhow!(
+                    "A fonte está configurada como 'Personalizada', mas nenhuma URL foi informada nas configurações. Digite a URL base nas configurações ou selecione outra fonte."
+                ));
+            }
+        }
+        crate::config::ModelDownloadSource::Github => {
+            urls_to_try.push(github_url);
+        }
+        crate::config::ModelDownloadSource::HuggingFace => {
+            for u in meta.urls {
+                if u.contains("huggingface.co") {
+                    urls_to_try.push(u.to_string());
+                }
+            }
+        }
+        crate::config::ModelDownloadSource::HfMirror => {
+            for u in meta.urls {
+                if u.contains("hf-mirror.com") {
+                    urls_to_try.push(u.to_string());
+                }
+            }
+        }
+        crate::config::ModelDownloadSource::Auto => {
+            if let Some(ref u) = custom_built_url {
+                urls_to_try.push(u.clone());
+            }
+            urls_to_try.push(github_url);
+            for u in meta.urls {
+                urls_to_try.push(u.to_string());
+            }
+        }
+    }
+
+    if urls_to_try.is_empty() {
+        urls_to_try.extend(meta.urls.iter().map(|s| s.to_string()));
+    }
 
     let mut response_opt = None;
     let mut last_error = String::new();
 
-    for &url in meta.urls {
+    for url in &urls_to_try {
         eprintln!("[models] tentando baixar de: {}", url);
         match client.get(url).send() {
             Ok(resp) => {
                 let status = resp.status();
                 if status.is_success() {
-                    response_opt = Some((resp, url));
+                    response_opt = Some((resp, url.clone()));
                     break;
                 } else {
                     last_error = format!("HTTP {} ({})", status, url);
-                    eprintln!("[models] espelho retornou status {}: {}", status, url);
+                    eprintln!("[models] fonte retornou status {}: {}", status, url);
                 }
             }
             Err(e) => {
                 last_error = format!("{:#} ({})", e, url);
-                eprintln!("[models] falha ao conectar no espelho {}: {:#}", url, e);
+                eprintln!("[models] falha ao conectar na fonte {}: {:#}", url, e);
             }
         }
     }
 
     let (mut response, active_url) = response_opt.ok_or_else(|| {
         anyhow!(
-            "falha ao baixar o modelo de todos os espelhos disponíveis (último erro: {})",
+            "Não foi possível baixar de nenhuma das fontes tentadas (último erro: {}). Dica: em redes corporativas com proxy/firewall, utilize GitHub Releases, informe uma URL personalizada ou use o botão 'Importar .bin'.",
             last_error
         )
     })?;

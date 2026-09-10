@@ -186,7 +186,7 @@ pub fn run() {
         // Só aplicamos isso à janela "main" — o overlay tem seu próprio ciclo
         // de vida controlado pelo módulo `visual`.
         .on_window_event(|window, event| {
-            if window.label() == "main" {
+            if window.label() == "main" || window.label() == "overlay" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     let _ = window.hide();
                     api.prevent_close();
@@ -198,6 +198,9 @@ pub fn run() {
             commands::get_config,
             commands::save_config,
             commands::open_config_folder,
+            commands::open_models_folder,
+            commands::import_whisper_model,
+            commands::test_overlay,
             commands::pause_hotkey,
             commands::resume_hotkey,
             commands::list_microphones,
