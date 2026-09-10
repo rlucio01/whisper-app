@@ -1,6 +1,6 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  color-scheme: light dark;
+  color-scheme: dark;
   color: rgba(255, 255, 255, 0.9);
   background-color: #1e1e1e;
 }
@@ -745,18 +745,27 @@ select.text-input option {
   width: 100%;
   height: 36px;
   padding: 0 0.75rem;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-color: #171b21;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 6px;
-  color: rgba(255, 255, 255, 0.95);
+  color: #f8fafc;
   font-size: 0.84rem;
   outline: none;
-  transition: border-color 0.15s;
+  color-scheme: dark;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .model-source-select:focus {
-  border-color: rgba(96, 165, 250, 0.7);
-  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.15);
+  border-color: rgba(96, 165, 250, 0.8);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+
+.model-source-select option,
+select option {
+  background-color: #1e242d;
+  color: #f8fafc;
+  padding: 0.5rem 0.75rem;
 }
 
 .model-custom-url-group {

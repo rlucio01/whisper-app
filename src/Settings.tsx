@@ -2296,7 +2296,7 @@ function ModelPicker({
             Fonte de download preferencial:
           </label>
           <select
-            className="model-source-select"
+            className="text-input model-source-select"
             value={downloadSource}
             onChange={(e) =>
               onDownloadSourceChange(e.target.value as ModelDownloadSource)
