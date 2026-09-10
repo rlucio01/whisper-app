@@ -372,12 +372,7 @@ fn call_openai_compatible<R: Runtime>(
         let body = response
             .text()
             .unwrap_or_else(|_| "(sem corpo de resposta)".to_string());
-        return Err(anyhow!(
-            "{} API retornou {}: {}",
-            provider.label,
-            status,
-            body
-        ));
+        return Err(format_llm_error(provider.label, status, &body));
     }
 
     let parsed: OpenaiResponse = response
@@ -440,7 +435,7 @@ fn call_anthropic(
         let body = response
             .text()
             .unwrap_or_else(|_| "(sem corpo de resposta)".to_string());
-        return Err(anyhow!("Anthropic API retornou {}: {}", status, body));
+        return Err(format_llm_error("Anthropic", status, &body));
     }
 
     let parsed: AnthropicResponse = response
@@ -510,7 +505,7 @@ fn call_gemini(
         let body = response
             .text()
             .unwrap_or_else(|_| "(sem corpo de resposta)".to_string());
-        return Err(anyhow!("Gemini API retornou {}: {}", status, body));
+        return Err(format_llm_error("Gemini", status, &body));
     }
 
     let parsed: GeminiResponse = response
@@ -796,4 +791,30 @@ struct GeminiResponseContent {
 struct GeminiResponsePart {
     #[serde(default)]
     text: String,
+}
+
+fn format_llm_error(provider: &str, status: reqwest::StatusCode, body: &str) -> anyhow::Error {
+    if body.contains("<html") || body.contains("<!DOCTYPE") || body.contains("blocked by your organization") {
+        let reason = if let Some(start) = body.find("id=\"reason-text\">") {
+            let rest = &body[start + 17..];
+            if let Some(end) = rest.find("</p>") {
+                format!("Motivo do filtro: {}", &rest[..end].trim())
+            } else {
+                "Filtro corporativo: categoria de IA Generativa bloqueada.".to_string()
+            }
+        } else if body.contains("Forcepoint") || body.contains("Websense") || body.contains("Zscaler") {
+            "Conexão interceptada pelo firewall/proxy de segurança corporativo.".to_string()
+        } else {
+            "Acesso bloqueado pela política de segurança da sua empresa.".to_string()
+        };
+
+        anyhow!(
+            "Acesso à API da {} bloqueado pelo firewall da empresa (HTTP {}).\n{}\n\nDica: Para utilizar o aplicativo na rede corporativa sem depender de conexão externa, ative a opção \"Pular formatação por IA\" nas Configurações.",
+            provider,
+            status,
+            reason
+        )
+    } else {
+        anyhow!("{} API retornou {}: {}", provider, status, body)
+    }
 }

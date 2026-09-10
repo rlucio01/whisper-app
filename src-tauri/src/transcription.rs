@@ -511,12 +511,7 @@ fn transcribe_cloud<R: Runtime>(
         let body = response
             .text()
             .unwrap_or_else(|_| "(sem corpo de resposta)".to_string());
-        return Err(anyhow!(
-            "{} Whisper API retornou {}: {}",
-            cfg.label,
-            status,
-            body
-        ));
+        return Err(format_transcription_error(cfg.label, status, &body));
     }
 
     let parsed: CloudResponse = response
@@ -528,6 +523,32 @@ fn transcribe_cloud<R: Runtime>(
     }
 
     Ok(parsed.text.trim().to_string())
+}
+
+fn format_transcription_error(provider: &str, status: reqwest::StatusCode, body: &str) -> anyhow::Error {
+    if body.contains("<html") || body.contains("<!DOCTYPE") || body.contains("blocked by your organization") {
+        let reason = if let Some(start) = body.find("id=\"reason-text\">") {
+            let rest = &body[start + 17..];
+            if let Some(end) = rest.find("</p>") {
+                format!("Motivo do bloqueio: {}", &rest[..end].trim())
+            } else {
+                "Filtro corporativo: categoria de IA Generativa bloqueada.".to_string()
+            }
+        } else if body.contains("Forcepoint") || body.contains("Websense") || body.contains("Zscaler") {
+            "Conexão interceptada pelo firewall/proxy de segurança corporativo.".to_string()
+        } else {
+            "Acesso bloqueado pela política de segurança da sua empresa.".to_string()
+        };
+
+        anyhow!(
+            "Acesso à API da {} bloqueado pelo firewall da empresa (HTTP {}).\n{}\n\nSolução recomendada: Como os modelos locais já foram baixados, abra as Configurações (⚙️) e altere o \"Provedor de Transcrição\" para \"Local (whisper.cpp)\". O ditado funcionará 100% offline no seu computador sem depender da internet!",
+            provider,
+            status,
+            reason
+        )
+    } else {
+        anyhow!("{} Whisper API retornou {}: {}", provider, status, body)
+    }
 }
 
 #[derive(serde::Deserialize)]
