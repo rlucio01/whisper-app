@@ -286,7 +286,7 @@ fn download_blocking<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<
     let mut builder = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(30 * 60))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WhisperApp/0.4.15");
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 WhisperApp/0.4.16");
 
     if !http_proxy.is_empty() {
         match reqwest::Proxy::all(&http_proxy) {
