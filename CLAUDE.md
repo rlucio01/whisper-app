@@ -159,3 +159,105 @@ Gerenciados via interface ou armazenados em `%APPDATA%\com.rlucio.whisperapp\mod
 - As notas de release são passadas no parâmetro `--notes`.
 - Assets obrigatórios: instalador NSIS `.exe`, assinatura `.sig`, instalador MSI `.msi`, assinatura `.msi.sig` e manifesto `latest.json`.
 - Geração de manifesto: `.\scripts\make-latest-json.ps1 -Notes "..."`.
+
+## Publicação no Winget (Windows Package Manager)
+
+O app está publicado no repositório oficial `microsoft/winget-pkgs` como `rlucio01.WhisperApp`.
+Após aprovação do PR inicial, cada nova versão precisa de um PR de atualização.
+
+### Pré-requisitos (já instalados)
+
+- `gh` CLI autenticado (`gh auth status`)
+- `winget` CLI para validação local
+
+### Processo para nova versão (script automatizado)
+
+```powershell
+.\scripts\submit-winget.ps1 -Version "0.4.18"
+```
+
+O script:
+1. Busca os assets da release via GitHub API (`gh`)
+2. Baixa os instaladores `.msi` e `.exe` e calcula o SHA256
+3. Gera os 4 arquivos YAML de manifesto em `winget/manifests/r/rlucio01/WhisperApp/<versão>/`
+4. Valida com `winget validate`
+5. Cria um branch `add-whisperapp-<versão>` no fork `rlucio01/winget-pkgs`
+6. Faz upload dos arquivos via `gh api`
+7. Abre o PR em `microsoft/winget-pkgs`
+
+### Processo manual (passo a passo)
+
+```powershell
+# 1. Calcular SHA256 dos instaladores da nova versão
+$ver = "0.4.18"
+$baseUrl = "https://github.com/rlucio01/whisper-app/releases/download/v$ver"
+$tmpDir = "$env:TEMP\whisper_winget"
+New-Item -Force -ItemType Directory $tmpDir | Out-Null
+Invoke-WebRequest "$baseUrl/whisper_app_${ver}_x64_en-US.msi" -OutFile "$tmpDir\app.msi" -UseBasicParsing
+Invoke-WebRequest "$baseUrl/whisper_app_${ver}_x64-setup.exe" -OutFile "$tmpDir\app.exe" -UseBasicParsing
+(Get-FileHash "$tmpDir\app.msi" -Algorithm SHA256).Hash  # SHA256 do MSI
+(Get-FileHash "$tmpDir\app.exe" -Algorithm SHA256).Hash  # SHA256 do EXE
+
+# 2. Gerar os manifests (atualizar os YAMLs em winget/manifests/r/rlucio01/WhisperApp/<versão>/)
+#    - PackageVersion em todos os 4 arquivos
+#    - InstallerUrl e InstallerSha256 no installer.yaml
+#    - ReleaseNotesUrl nos locales
+
+# 3. Validar localmente
+winget validate --manifest "winget\manifests\r\rlucio01\WhisperApp\$ver"
+
+# 4. Sincronizar fork com upstream
+gh repo sync rlucio01/winget-pkgs --source microsoft/winget-pkgs --branch master
+
+# 5. Criar branch no fork
+$sha = gh api repos/rlucio01/winget-pkgs/git/refs/heads/master --jq '.object.sha'
+$body = @{ ref = "refs/heads/add-whisperapp-$ver"; sha = $sha } | ConvertTo-Json
+$body | Out-File "$env:TEMP\gh_ref.json" -Encoding utf8
+gh api repos/rlucio01/winget-pkgs/git/refs -X POST --input "$env:TEMP\gh_ref.json"
+
+# 6. Fazer upload dos 4 arquivos via gh API
+$files = @("rlucio01.WhisperApp.yaml","rlucio01.WhisperApp.installer.yaml",
+           "rlucio01.WhisperApp.locale.en-US.yaml","rlucio01.WhisperApp.locale.pt-BR.yaml")
+foreach ($file in $files) {
+    $localPath = "winget\manifests\r\rlucio01\WhisperApp\$ver\$file"
+    $remotePath = "manifests/r/rlucio01/WhisperApp/$ver/$file"
+    $content = [Convert]::ToBase64String([IO.File]::ReadAllBytes($localPath))
+    $existing = gh api "repos/rlucio01/winget-pkgs/contents/$remotePath" --jq '.sha' 2>$null
+    $body = @{ message = "Add $file for v$ver"; content = $content; branch = "add-whisperapp-$ver" }
+    if ($existing) { $body["sha"] = $existing.Trim() }
+    $body | ConvertTo-Json | Out-File "$env:TEMP\gh_file.json" -Encoding utf8
+    gh api "repos/rlucio01/winget-pkgs/contents/$remotePath" -X PUT --input "$env:TEMP\gh_file.json"
+}
+
+# 7. Abrir PR
+gh pr create `
+  --repo microsoft/winget-pkgs `
+  --head "rlucio01:add-whisperapp-$ver" `
+  --base master `
+  --title "New package: rlucio01.WhisperApp version $ver" `
+  --body "Update Whisper App to v$ver. Release: https://github.com/rlucio01/whisper-app/releases/tag/v$ver"
+```
+
+### Estrutura dos manifestos Winget
+
+```
+winget/manifests/r/rlucio01/WhisperApp/<versão>/
+  rlucio01.WhisperApp.yaml                 # versão raiz (DefaultLocale)
+  rlucio01.WhisperApp.installer.yaml       # URLs + SHA256 do MSI e EXE
+  rlucio01.WhisperApp.locale.en-US.yaml   # descrição em inglês (obrigatório)
+  rlucio01.WhisperApp.locale.pt-BR.yaml   # descrição em português
+```
+
+### Identificadores importantes
+
+- **Package ID:** `rlucio01.WhisperApp`
+- **Fork:** https://github.com/rlucio01/winget-pkgs
+- **Repositório oficial:** https://github.com/microsoft/winget-pkgs
+- **Manifests path:** `manifests/r/rlucio01/WhisperApp/`
+- **PR inicial (v0.4.17):** https://github.com/microsoft/winget-pkgs/pull/437785
+
+### Aviso importante sobre YAML
+
+**NUNCA edite os arquivos YAML pelo browser do GitHub.** O editor CodeMirror do GitHub
+adiciona indentação extra ao digitar, corrompendo silenciosamente o YAML.
+Use sempre o script PowerShell ou o processo manual via `gh api` acima.

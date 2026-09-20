@@ -13,6 +13,9 @@
   <a href="https://github.com/rlucio01/whisper-app/releases/latest">
     <img src="https://img.shields.io/github/v/release/rlucio01/whisper-app?label=vers%C3%A3o" alt="Última versão" />
   </a>
+  <a href="https://github.com/microsoft/winget-pkgs/pull/437785">
+    <img src="https://img.shields.io/badge/winget-rlucio01.WhisperApp-0078D6?logo=windows" alt="Disponível no Winget" />
+  </a>
   <img src="https://img.shields.io/badge/plataforma-Windows-0078D6" alt="Plataforma: Windows" />
   <img src="https://img.shields.io/badge/tamanho%20em%20idle-%3C7MB-brightgreen" alt="Menos de 7MB em idle" />
 </p>
@@ -75,6 +78,22 @@ megabytes parados na bandeja do sistema.
 Stack: **Tauri 2 + React 19 + TypeScript + Rust**.
 
 ## Instalação (uso normal, sem compilar)
+
+### Via Windows Package Manager (Winget)
+
+A forma mais rápida para quem já tem o Winget (Windows 10/11):
+
+```powershell
+winget install rlucio01.WhisperApp
+```
+
+Para atualizar para a versão mais recente:
+
+```powershell
+winget upgrade rlucio01.WhisperApp
+```
+
+### Via instalador manual
 
 1. Baixe o instalador mais recente na
    [página de Releases](https://github.com/rlucio01/whisper-app/releases/latest)
