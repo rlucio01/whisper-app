@@ -142,16 +142,9 @@ PackageVersion: $Version
 MinimumOSVersion: 10.0.17763.0
 Installers:
 - Architecture: x64
-  InstallerType: msi
-  InstallerUrl: $baseUrl/$msiName
-  InstallerSha256: $msiSha256
-  InstallerLocale: en-US
-  UpgradeBehavior: install
-- Architecture: x64
   InstallerType: nullsoft
   InstallerUrl: $baseUrl/$exeName
   InstallerSha256: $exeSha256
-  InstallerLocale: pt-BR
   UpgradeBehavior: install
 ManifestType: installer
 ManifestVersion: 1.9.0
@@ -259,12 +252,18 @@ $branchName = "add-whisperapp-$Version"
 $masterSha  = gh api repos/rlucio01/winget-pkgs/git/refs/heads/master --jq '.object.sha'
 
 # Verificar se branch já existe
-$branchExists = gh api "repos/rlucio01/winget-pkgs/git/refs/heads/$branchName" 2>$null
-if ($LASTEXITCODE -eq 0) {
+$branchExists = & {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    $res = gh api "repos/rlucio01/winget-pkgs/git/refs/heads/$branchName" 2>&1
+    $ErrorActionPreference = $prev
+    $LASTEXITCODE -eq 0
+}
+if ($branchExists) {
     Write-Host "    Branch $branchName ja existe, reutilizando." -ForegroundColor Yellow
 } else {
     $body = @{ ref = "refs/heads/$branchName"; sha = $masterSha.Trim() } | ConvertTo-Json
-    $body | Out-File "$env:TEMP\gh_ref_$Version.json" -Encoding utf8
+    [System.IO.File]::WriteAllText("$env:TEMP\gh_ref_$Version.json", $body, [System.Text.UTF8Encoding]::new($false))
     gh api repos/rlucio01/winget-pkgs/git/refs -X POST --input "$env:TEMP\gh_ref_$Version.json" | Out-Null
     Write-OK "Branch $branchName criado"
 }
@@ -287,17 +286,24 @@ foreach ($file in $fileNames) {
     $remotePath = "$remoteBase/$file"
     $content    = [Convert]::ToBase64String([IO.File]::ReadAllBytes($localPath))
 
-    $existing = gh api "repos/rlucio01/winget-pkgs/contents/$remotePath" --jq '.sha' 2>$null
+    $existing = & {
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = 'SilentlyContinue'
+        $val = gh api "repos/rlucio01/winget-pkgs/contents/$remotePath" --jq '.sha' 2>&1
+        $ErrorActionPreference = $prev
+        if ($LASTEXITCODE -eq 0) { $val } else { $null }
+    }
     $body = @{
         message = "Add $file for rlucio01.WhisperApp v$Version"
         content = $content
         branch  = $branchName
     }
-    if ($existing -and $LASTEXITCODE -eq 0) {
+    if ($existing) {
         $body["sha"] = $existing.Trim()
     }
 
-    $body | ConvertTo-Json | Out-File "$env:TEMP\gh_file_$Version.json" -Encoding utf8
+    $json = $body | ConvertTo-Json
+    [System.IO.File]::WriteAllText("$env:TEMP\gh_file_$Version.json", $json, [System.Text.UTF8Encoding]::new($false))
     gh api "repos/rlucio01/winget-pkgs/contents/$remotePath" -X PUT `
         --input "$env:TEMP\gh_file_$Version.json" | Out-Null
 

@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.9.0.schema.json
+﻿# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.9.0.schema.json
 
 PackageIdentifier: rlucio01.WhisperApp
 PackageVersion: 0.4.18
@@ -9,8 +9,6 @@ PublisherSupportUrl: https://github.com/rlucio01/whisper-app/issues
 PackageName: Whisper App
 PackageUrl: https://github.com/rlucio01/whisper-app
 License: Proprietario
-LicenseUrl: https://github.com/rlucio01/whisper-app/blob/main/README.md
-Copyright: Copyright (c) Rafael Lucio. All rights reserved.
 ShortDescription: Ditado por voz com IA para Windows usando Whisper e LLMs
 Description: |-
   Whisper App e uma ferramenta leve de ditado por voz com IA para Windows.
