@@ -261,7 +261,8 @@ winget/manifests/r/rlucio01/WhisperApp/<versão>/
 - **Fork:** https://github.com/rlucio01/winget-pkgs
 - **Repositório oficial:** https://github.com/microsoft/winget-pkgs
 - **Manifests path:** `manifests/r/rlucio01/WhisperApp/`
-- **PR inicial (v0.4.17):** https://github.com/microsoft/winget-pkgs/pull/437785
+- **PR ativa (v0.4.18 standalone):** https://github.com/microsoft/winget-pkgs/pull/449091 (100% dos checks de validação aprovados)
+- **PR anterior arquivada (v0.4.17):** https://github.com/microsoft/winget-pkgs/pull/437785
 
 ### Aviso importante sobre YAML
 

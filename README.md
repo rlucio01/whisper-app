@@ -13,7 +13,7 @@
   <a href="https://github.com/rlucio01/whisper-app/releases/latest">
     <img src="https://img.shields.io/github/v/release/rlucio01/whisper-app?label=vers%C3%A3o" alt="Última versão" />
   </a>
-  <a href="https://github.com/microsoft/winget-pkgs/pull/437785">
+  <a href="https://github.com/microsoft/winget-pkgs/pull/449091">
     <img src="https://img.shields.io/badge/winget-rlucio01.WhisperApp-0078D6?logo=windows" alt="Disponível no Winget" />
   </a>
   <img src="https://img.shields.io/badge/plataforma-Windows-0078D6" alt="Plataforma: Windows" />
