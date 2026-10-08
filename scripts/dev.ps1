@@ -42,6 +42,16 @@ if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     Remove-Item Env:CMAKE_GENERATOR_PLATFORM -ErrorAction SilentlyContinue
 }
 
+# 2b. Garante que o vc_redist.x64.exe esteja presente para o hook NSIS.
+#     O arquivo e grande (24 MB) e esta no .gitignore; baixado sob demanda.
+$vcRedistPath = Join-Path $PSScriptRoot "..\src-tauri\windows\vc_redist.x64.exe"
+if (-not (Test-Path $vcRedistPath)) {
+    Write-Host "Baixando vc_redist.x64.exe (necessario para o installer NSIS)..."
+    Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x64.exe" `
+        -OutFile $vcRedistPath -UseBasicParsing
+    Write-Host "vc_redist.x64.exe baixado."
+}
+
 # 3. Adiciona ao PATH se ainda não estiverem: Cargo, CMake, LLVM e Ninja.
 $extraPaths = @($CargoBin, "$CMakePath\bin", "$LlvmPath\bin", $NinjaPath)
 foreach ($p in $extraPaths) {

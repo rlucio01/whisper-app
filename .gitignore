@@ -28,3 +28,7 @@ dist-ssr
 
 # Rust build artifacts (redundante com src-tauri/.gitignore, mas seguro).
 target/
+
+# VCRedist — arquivo grande (24 MB), baixado automaticamente pelo scripts/dev.ps1.
+# Nao commitar; o hooks.nsh referencia este arquivo em tempo de build.
+src-tauri/windows/vc_redist.x64.exe

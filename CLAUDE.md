@@ -83,6 +83,13 @@ Fluxo do usuário:
   rejeitada sem crash) e não aparece em `cargo check`/`tsc`. Se uma nova janela for
   criada em `tauri.conf.json`, adicione o label dela em
   `capabilities/default.json` (ou crie uma capability dedicada).
+- **Dependência do Visual C++ Redistributable e hook NSIS (`src-tauri/windows/hooks.nsh`)**:
+  O executável linka dinamicamente `MSVCP140.dll` (do VC++ 2015-2022 Redistributable). Em
+  máquinas do usuário comum já está presente, mas ambientes limpos (como o validador do
+  Winget ou VMs novas) falham com `STATUS_DLL_NOT_FOUND`. O hook NSIS verifica o registro
+  do Windows e instala o redistribuível silenciosamente antes do app ser instalado.
+  O arquivo `vc_redist.x64.exe` (24 MB) está no `.gitignore` e é baixado automaticamente
+  pelo `scripts/dev.ps1` quando ausente.
 - **Compilação do whisper.cpp e flags SIMD portáveis (`GGML_AVX=ON`, `GGML_NATIVE=OFF`, `GGML_AVX512=OFF`, `GGML_AVX2=OFF`, `GGML_FMA=OFF`)**:
   Definidas em `scripts/dev.ps1` e `src-tauri/.cargo/config.toml`. **NUNCA remova ou altere essas variáveis sem entender o seguinte contexto**:
   1. A máquina de compilação do desenvolvedor possui um processador com instruções ultra-recentes AVX-512.

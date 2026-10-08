@@ -54,9 +54,13 @@
         "headerImage": "icons/nsis-header.bmp",
         "sidebarImage": "icons/nsis-sidebar.bmp",
         "languages": ["PortugueseBR", "English"],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerHooks": "./windows/hooks.nsh"
       }
     },
+    "resources": [
+      { "src": "./windows/vc_redist.x64.exe", "target": "." }
+    ],
     "createUpdaterArtifacts": true
   },
   "plugins": {
