@@ -58,9 +58,9 @@
         "installerHooks": "./windows/hooks.nsh"
       }
     },
-    "resources": [
-      { "src": "./windows/vc_redist.x64.exe", "target": "." }
-    ],
+    "resources": {
+      "./windows/vc_redist.x64.exe": "vc_redist.x64.exe"
+    },
     "createUpdaterArtifacts": true
   },
   "plugins": {

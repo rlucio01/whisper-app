@@ -6,3 +6,6 @@ GGML_AVX512 = { value = "OFF", force = true }
 GGML_FMA = { value = "OFF", force = true }
 GGML_F16C = { value = "OFF", force = true }
 GGML_BMI2 = { value = "OFF", force = true }
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
