@@ -313,6 +313,15 @@ pub struct AppConfig {
     #[serde(default)]
     pub repaste_hotkey: String,
 
+    /// Atalho secundário de push-to-talk (opcional). Pode ser uma tecla do teclado
+    /// (ex: "F8", "Ctrl+Shift+Space") ou um botão do mouse ("Mouse4", "Mouse5", "MiddleClick").
+    #[serde(default)]
+    pub secondary_hotkey: String,
+
+    /// Atalho para alternar a tradução automática (ex: F10).
+    #[serde(default = "default_translate_toggle_hotkey")]
+    pub translate_toggle_hotkey: String,
+
     /// Onde transcrever: local (whisper.cpp) ou nuvem (OpenAI API).
     #[serde(default)]
     pub transcription_provider: TranscriptionProvider,
@@ -486,6 +495,8 @@ impl Default for AppConfig {
             hotkey: default_hotkey(),
             hands_free_hotkey: String::new(),
             repaste_hotkey: String::new(),
+            secondary_hotkey: String::new(),
+            translate_toggle_hotkey: default_translate_toggle_hotkey(),
             transcription_provider: TranscriptionProvider::default(),
             transcription_language: String::new(),
             whisper_model: WhisperModel::default(),
@@ -529,6 +540,10 @@ fn default_target_language() -> String {
 
 fn default_hotkey() -> String {
     "Ctrl+Super".to_string()
+}
+
+fn default_translate_toggle_hotkey() -> String {
+    "F10".to_string()
 }
 
 /// Handle compartilhado para o config — guardado como state do Tauri.

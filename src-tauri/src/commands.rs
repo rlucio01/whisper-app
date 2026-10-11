@@ -56,6 +56,8 @@ pub fn save_config<R: Runtime>(
         guard.hotkey.trim() != new_config.hotkey.trim()
             || guard.hands_free_hotkey.trim() != new_config.hands_free_hotkey.trim()
             || guard.repaste_hotkey.trim() != new_config.repaste_hotkey.trim()
+            || guard.secondary_hotkey.trim() != new_config.secondary_hotkey.trim()
+            || guard.translate_toggle_hotkey.trim() != new_config.translate_toggle_hotkey.trim()
     };
 
     if hotkeys_changed {
@@ -340,6 +342,116 @@ pub fn get_frequent_words<R: Runtime>(
 #[tauri::command]
 pub fn clear_frequent_words<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     crate::dictionary::clear_frequencies(&app).map_err(|e| format!("{:#}", e))
+}
+
+/// Alterna a tradução automática (usado via UI ou evento).
+#[tauri::command]
+pub fn toggle_translation<R: Runtime>(app: AppHandle<R>) {
+    crate::toggle_translation(&app);
+}
+
+/// Abre uma caixa de diálogo nativa do Windows para seleção de arquivo de áudio.
+#[tauri::command]
+pub async fn pick_audio_file() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            let ps_script = r#"[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $dlg = New-Object System.Windows.Forms.OpenFileDialog; $dlg.Filter = 'Arquivos de Audio (*.mp3;*.ogg;*.wav;*.flac;*.m4a;*.aac;*.wma)|*.mp3;*.ogg;*.wav;*.flac;*.m4a;*.aac;*.wma|Todos os Arquivos (*.*)|*.*'; $dlg.Title = 'Selecionar Arquivo de Audio'; if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dlg.FileName }"#;
+            let output = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", ps_script])
+                .creation_flags(0x08000000)
+                .output()
+                .map_err(|e| format!("Falha ao invocar diálogo de arquivo: {e}"))?;
+
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if path_str.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(path_str))
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(None)
+        }
+    })
+    .await
+    .map_err(|e| format!("Falha na tarefa de diálogo: {e}"))?
+}
+
+/// Transcreve um arquivo de áudio (MP3, OGG, WAV, FLAC, M4A, etc.) em thread de background.
+#[tauri::command]
+pub async fn transcribe_audio_file<R: Runtime>(
+    app: AppHandle<R>,
+    file_path: String,
+) -> Result<crate::transcription::TranscriptionFileResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = std::path::PathBuf::from(file_path.trim());
+        crate::transcription::transcribe_file_standalone(&app, &path)
+    })
+    .await
+    .map_err(|e| format!("tarefa assíncrona falhou: {:#}", e))?
+    .map_err(|e| format!("{:#}", e))
+}
+
+/// Inicia a gravação ao vivo de uma reunião.
+#[tauri::command]
+pub fn start_meeting_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::meeting::start_meeting_recording(&app).map_err(|e| format!("{:#}", e))
+}
+
+/// Finaliza a gravação ao vivo de uma reunião e retorna o caminho do arquivo WAV gerado.
+#[tauri::command]
+pub fn stop_meeting_recording<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
+    crate::meeting::stop_meeting_recording(&app)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| format!("{:#}", e))
+}
+
+/// Cancela a gravação da reunião descartando o áudio capturado.
+#[tauri::command]
+pub fn cancel_meeting_recording<R: Runtime>(app: AppHandle<R>) {
+    crate::meeting::cancel_meeting_recording(&app);
+}
+
+/// Processa um áudio de reunião gerando transcrição, diarização por orador e ata com ações.
+#[tauri::command]
+pub async fn process_meeting<R: Runtime>(
+    app: AppHandle<R>,
+    audio_path: String,
+    context_hint: Option<String>,
+) -> Result<crate::meeting::MeetingMinutes, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = std::path::PathBuf::from(audio_path.trim());
+        crate::meeting::process_meeting_audio(&app, &path, context_hint.as_deref())
+    })
+    .await
+    .map_err(|e| format!("tarefa de processamento de reunião cancelada: {:#}", e))?
+    .map_err(|e| format!("{:#}", e))
+}
+
+/// Lista todas as atas de reuniões salvas.
+#[tauri::command]
+pub fn get_meetings<R: Runtime>(app: AppHandle<R>) -> Result<Vec<crate::meeting::MeetingMinutes>, String> {
+    crate::meeting::load_all_meetings(&app).map_err(|e| format!("{:#}", e))
+}
+
+/// Exclui uma ata de reunião.
+#[tauri::command]
+pub fn delete_meeting<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    crate::meeting::delete_meeting(&app, &id).map_err(|e| format!("{:#}", e))
+}
+
+/// Alterna o status de concluído de um item de ação de uma reunião.
+#[tauri::command]
+pub fn set_meeting_action_done<R: Runtime>(
+    app: AppHandle<R>,
+    meeting_id: String,
+    action_idx: usize,
+    done: bool,
+) -> Result<(), String> {
+    crate::meeting::set_action_item_done(&app, &meeting_id, action_idx, done).map_err(|e| format!("{:#}", e))
 }
 
 

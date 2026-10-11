@@ -1,6 +1,6 @@
 [package]
 name = "whisper_app"
-version = "0.1.0"
+version = "0.5.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -57,6 +57,9 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 enigo = "0.6"
 # Clipboard cross-platform (get/set de texto).
 arboard = "3"
+# Decodificação de arquivos de áudio (MP3, OGG, WAV, FLAC, M4A/AAC).
+symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "vorbis", "wav", "flac", "aac", "isomp4", "ogg"] }
+
 
 # APIs Win32 (foreground window, process name) — usadas em `active_app.rs`
 # para detectar o app onde o usuário vai colar o texto e adaptar o prompt

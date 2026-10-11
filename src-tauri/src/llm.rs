@@ -533,6 +533,182 @@ fn call_gemini(
     Ok(text.trim().to_string())
 }
 
+/// Chamada direta ao LLM ativo com prompt e mensagens customizadas (usado para atas e diarização).
+pub fn call_llm_custom<R: Runtime>(
+    app: &AppHandle<R>,
+    system_prompt: &str,
+    user_message: &str,
+    max_tokens: Option<u32>,
+) -> Result<String> {
+    let cfg = app
+        .state::<SharedConfig>()
+        .lock()
+        .map_err(|_| anyhow!("mutex de config envenenado"))?
+        .clone();
+
+    if cfg.active_api_key().trim().is_empty() {
+        return Err(anyhow!(
+            "Nenhuma chave de API configurada para o provedor {:?}. Vá em Configurações para adicionar.",
+            cfg.provider
+        ));
+    }
+
+    let (http_proxy, danger_accept_invalid_certs) =
+        (cfg.http_proxy.trim().to_string(), cfg.danger_accept_invalid_certs);
+    let mut builder = reqwest::blocking::Client::builder().timeout(Duration::from_secs(120));
+
+    if !http_proxy.is_empty() {
+        if let Ok(proxy) = reqwest::Proxy::all(&http_proxy) {
+            builder = builder.proxy(proxy);
+        }
+    }
+    if danger_accept_invalid_certs {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+    let client = builder.build().context("falha ao criar client HTTP")?;
+    let max_tokens = max_tokens.unwrap_or(4000);
+
+    match cfg.provider {
+        LlmProvider::Openai | LlmProvider::Openrouter | LlmProvider::Groq | LlmProvider::Xai => {
+            let provider_config = match cfg.provider {
+                LlmProvider::Openai => OpenaiCompatConfig::openai(&cfg.openai_api_key),
+                LlmProvider::Openrouter => OpenaiCompatConfig::openrouter(&cfg.openrouter_api_key),
+                LlmProvider::Groq => OpenaiCompatConfig::groq(&cfg.groq_api_key),
+                LlmProvider::Xai => OpenaiCompatConfig::xai(&cfg.xai_api_key),
+                _ => unreachable!(),
+            };
+
+            let body = OpenaiRequest {
+                model: cfg.active_model(),
+                max_tokens,
+                messages: vec![
+                    OpenaiMessage {
+                        role: "system",
+                        content: system_prompt,
+                    },
+                    OpenaiMessage {
+                        role: "user",
+                        content: user_message,
+                    },
+                ],
+            };
+
+            let mut req = client
+                .post(provider_config.endpoint)
+                .bearer_auth(provider_config.api_key)
+                .header("content-type", "application/json");
+            for (k, v) in provider_config.extra_headers {
+                req = req.header(*k, *v);
+            }
+
+            let response = req
+                .json(&body)
+                .send()
+                .with_context(|| format!("falha ao enviar request para {}", provider_config.label))?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().unwrap_or_default();
+                return Err(format_llm_error(provider_config.label, status, &body));
+            }
+
+            let parsed: OpenaiResponse = response.json().context("resposta não é JSON válido")?;
+            let text = parsed
+                .choices
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow!("resposta sem choices"))?
+                .message
+                .content;
+            Ok(text.trim().to_string())
+        }
+        LlmProvider::Anthropic => {
+            let body = AnthropicRequest {
+                model: cfg.active_model(),
+                max_tokens,
+                system: system_prompt,
+                messages: vec![AnthropicMessage {
+                    role: "user",
+                    content: user_message,
+                }],
+            };
+
+            let response = client
+                .post(ANTHROPIC_ENDPOINT)
+                .header("x-api-key", &cfg.anthropic_api_key)
+                .header("anthropic-version", ANTHROPIC_API_VERSION)
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .context("falha ao enviar request para a Anthropic")?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().unwrap_or_default();
+                return Err(format_llm_error("Anthropic", status, &body));
+            }
+
+            let parsed: AnthropicResponse = response.json().context("resposta não é JSON válido")?;
+            let text: String = parsed
+                .content
+                .into_iter()
+                .filter_map(|block| match block {
+                    AnthropicBlock::Text { text } => Some(text),
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            Ok(text.trim().to_string())
+        }
+        LlmProvider::Gemini => {
+            let model = cfg.active_model();
+            let url = format!(
+                "{}/{}:generateContent?key={}",
+                GEMINI_ENDPOINT_BASE, model, cfg.gemini_api_key
+            );
+
+            let body = GeminiRequest {
+                system_instruction: GeminiSystem {
+                    parts: vec![GeminiPart { text: system_prompt }],
+                },
+                contents: vec![GeminiContent {
+                    role: "user",
+                    parts: vec![GeminiPart { text: user_message }],
+                }],
+                generation_config: GeminiGenerationConfig {
+                    max_output_tokens: max_tokens,
+                },
+            };
+
+            let response = client
+                .post(&url)
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .context("falha ao enviar request para a Gemini")?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().unwrap_or_default();
+                return Err(format_llm_error("Gemini", status, &body));
+            }
+
+            let parsed: GeminiResponse = response.json().context("resposta não é JSON válido")?;
+            let text: String = parsed
+                .candidates
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow!("resposta sem candidates"))?
+                .content
+                .parts
+                .into_iter()
+                .map(|p| p.text)
+                .collect::<Vec<_>>()
+                .join("");
+            Ok(text.trim().to_string())
+        }
+    }
+}
+
 // ---------- Prompt ----------
 
 /// Monta o system prompt combinando reformatação + hint contextual do app +

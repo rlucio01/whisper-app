@@ -6,6 +6,8 @@ import {
   formatHotkey,
   formatModifierCombo,
   MOD_CODE_TO_NAME,
+  MOUSE_HOTKEY_PRESETS,
+  DEFAULT_TRANSLATE_TOGGLE_HOTKEY,
 } from "./hotkeyFormat";
 import { playBeep } from "./sound";
 import type { useUpdater } from "./useUpdater";
@@ -112,6 +114,8 @@ interface AppConfig {
     accent_color: string;
   };
   hotkey: string;
+  secondary_hotkey?: string;
+  translate_toggle_hotkey?: string;
   hands_free_hotkey: string;
   repaste_hotkey: string;
   transcription_provider: TranscriptionProvider;
@@ -814,6 +818,50 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                 <strong>Alterar</strong> e pressione a combinação desejada (ex:{" "}
                 <code>F9</code>, <code>Ctrl+Shift+Space</code>, <code>Alt+Space</code>{" "}
                 ou <code>Ctrl+Windows</code>).
+              </p>
+            </section>
+
+            <section className="field" style={{ marginTop: "1.5rem" }}>
+              <label className="field-label">Atalho push-to-talk secundário (opcional)</label>
+              <HotkeyCapture
+                value={config.secondary_hotkey || ""}
+                onChange={(hk) => setConfig({ ...config, secondary_hotkey: hk })}
+                placeholder="Desativado"
+                onClear={() => setConfig({ ...config, secondary_hotkey: "" })}
+              />
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", alignSelf: "center", marginRight: "0.25rem" }}>
+                  Botões do Mouse:
+                </span>
+                {MOUSE_HOTKEY_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`btn-secondary btn-small ${config.secondary_hotkey === p.id ? "active" : ""}`}
+                    onClick={() => setConfig({ ...config, secondary_hotkey: p.id })}
+                    title={p.desc}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <p className="field-hint">
+                Dispare a gravação usando um botão extra do mouse (Mouse 4 / Mouse 5 laterais ou botão do meio)
+                ou configure uma tecla alternativa do teclado. Funciona em paralelo ao atalho principal.
+              </p>
+            </section>
+
+            <section className="field" style={{ marginTop: "1.5rem" }}>
+              <label className="field-label">Atalho para alternar tradução para inglês</label>
+              <HotkeyCapture
+                value={config.translate_toggle_hotkey ?? DEFAULT_TRANSLATE_TOGGLE_HOTKEY}
+                onChange={(hk) => setConfig({ ...config, translate_toggle_hotkey: hk })}
+                placeholder={DEFAULT_TRANSLATE_TOGGLE_HOTKEY}
+                onClear={() => setConfig({ ...config, translate_toggle_hotkey: "" })}
+              />
+              <p className="field-hint">
+                Pressione a qualquer momento (padrão <code>F10</code>) para ligar ou desligar a tradução
+                automática com feedback sonoro e sincronização com o menu da bandeja.
               </p>
             </section>
 

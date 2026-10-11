@@ -642,7 +642,7 @@ fn read_and_prepare_wav(path: &Path) -> Result<Vec<f32>> {
     Ok(resampled)
 }
 
-fn downmix_to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
+pub(crate) fn downmix_to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
     if channels == 1 {
         return samples.to_vec();
     }
@@ -653,7 +653,7 @@ fn downmix_to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
         .collect()
 }
 
-fn linear_resample(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
+pub(crate) fn linear_resample(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
     if samples.is_empty() {
         return Vec::new();
     }
@@ -810,6 +810,209 @@ pub fn run_local_benchmark<R: Runtime>(
         model: cfg.whisper_model.meta().display_name.to_string(),
         device_used,
         message,
+    })
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TranscriptSegment {
+    pub start_sec: f32,
+    pub end_sec: f32,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TranscriptionFileResult {
+    pub text: String,
+    pub duration_sec: f32,
+    pub segments: Vec<TranscriptSegment>,
+}
+
+#[derive(serde::Deserialize)]
+struct CloudVerboseSegment {
+    start: f32,
+    end: f32,
+    text: String,
+}
+
+#[derive(serde::Deserialize)]
+struct CloudVerboseResponse {
+    text: String,
+    #[serde(default)]
+    segments: Vec<CloudVerboseSegment>,
+}
+
+/// Transcreve um arquivo de áudio arbitrário (OGG, MP3, WAV, FLAC, M4A/AAC)
+/// retornando o texto consolidado e os segmentos com marcadores de tempo.
+pub fn transcribe_file_standalone<R: Runtime>(
+    app: &AppHandle<R>,
+    file_path: &Path,
+) -> Result<TranscriptionFileResult> {
+    let decoded = crate::audio_decode::decode_audio_file(file_path)?;
+
+    let cfg_snapshot = app
+        .state::<SharedConfig>()
+        .lock()
+        .map_err(|_| anyhow!("falha ao acessar configuração"))?
+        .clone();
+
+    let whisper_prompt = crate::dictionary::build_whisper_prompt(&cfg_snapshot.dictionary);
+    let prompt_ref = whisper_prompt.as_deref();
+    let language = cfg_snapshot.transcription_language.trim();
+
+    let mut segments = Vec::<TranscriptSegment>::new();
+    let mut full_text = String::new();
+
+    match cfg_snapshot.transcription_provider {
+        TranscriptionProvider::Local => {
+            let use_gpu = cfg_snapshot.should_use_gpu();
+            let ctx = load_local_model(app, cfg_snapshot.whisper_model, use_gpu)?;
+            let mut state = ctx
+                .create_state()
+                .context("falha ao criar estado do whisper local")?;
+
+            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+            params.set_language((!language.is_empty()).then_some(language));
+            if let Some(p) = prompt_ref {
+                let pt = p.trim();
+                if !pt.is_empty() {
+                    params.set_initial_prompt(pt);
+                }
+            }
+            params.set_print_progress(false);
+            params.set_print_special(false);
+            params.set_print_timestamps(true);
+            params.set_suppress_blank(true);
+
+            let available = std::thread::available_parallelism()
+                .map(|n| n.get() as i32)
+                .unwrap_or(4);
+            let n_threads = if available > 8 {
+                (available / 2).clamp(4, 8)
+            } else {
+                available.clamp(2, 6)
+            };
+            params.set_n_threads(n_threads);
+
+            state
+                .full(params, &decoded.samples)
+                .context("falha durante transcrição do arquivo")?;
+
+            let n_segments = state.full_n_segments();
+            for i in 0..n_segments {
+                if let Some(seg) = state.get_segment(i) {
+                    let text = seg.to_str().unwrap_or_default().trim().to_string();
+                    let t0 = seg.start_timestamp() as f32 * 0.01;
+                    let t1 = seg.end_timestamp() as f32 * 0.01;
+                    if !text.is_empty() {
+                        full_text.push_str(&text);
+                        full_text.push(' ');
+                        segments.push(TranscriptSegment {
+                            start_sec: t0,
+                            end_sec: t1,
+                            text,
+                        });
+                    }
+                }
+            }
+        }
+        TranscriptionProvider::OpenaiCloud | TranscriptionProvider::GroqCloud => {
+            let is_openai = cfg_snapshot.transcription_provider == TranscriptionProvider::OpenaiCloud;
+            let (endpoint, model, api_key, label) = if is_openai {
+                (
+                    OPENAI_ENDPOINT,
+                    OPENAI_MODEL,
+                    &cfg_snapshot.openai_api_key,
+                    "OpenAI",
+                )
+            } else {
+                (
+                    GROQ_ENDPOINT,
+                    GROQ_MODEL,
+                    &cfg_snapshot.groq_api_key,
+                    "Groq",
+                )
+            };
+
+            if api_key.trim().is_empty() {
+                let _ = std::fs::remove_file(&decoded.wav_16k_path);
+                return Err(anyhow!("Chave da API {} não configurada em Configurações.", label));
+            }
+
+            let client = reqwest::blocking::Client::builder()
+                .timeout(CLOUD_REQUEST_TIMEOUT)
+                .build()
+                .context("falha ao criar client HTTP")?;
+
+            let file_bytes = std::fs::read(&decoded.wav_16k_path)
+                .with_context(|| "falha ao ler áudio para envio cloud")?;
+            let file_part = reqwest::blocking::multipart::Part::bytes(file_bytes)
+                .file_name("audio.wav")
+                .mime_str("audio/wav")
+                .context("falha ao preparar multipart")?;
+
+            let mut form = reqwest::blocking::multipart::Form::new()
+                .text("model", model)
+                .text("response_format", "verbose_json")
+                .part("file", file_part);
+
+            if !language.is_empty() {
+                form = form.text("language", language.to_string());
+            }
+            if let Some(p) = prompt_ref {
+                if !p.trim().is_empty() {
+                    form = form.text("prompt", p.trim().to_string());
+                }
+            }
+
+            let response = client
+                .post(endpoint)
+                .bearer_auth(api_key)
+                .multipart(form)
+                .send()
+                .with_context(|| format!("falha ao conectar na API {}", label))?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().unwrap_or_default();
+                let _ = std::fs::remove_file(&decoded.wav_16k_path);
+                return Err(format_transcription_error(label, status, &body));
+            }
+
+            let parsed: CloudVerboseResponse = response
+                .json()
+                .with_context(|| format!("resposta da {} não é JSON válido", label))?;
+
+            full_text = parsed.text;
+            for seg in parsed.segments {
+                segments.push(TranscriptSegment {
+                    start_sec: seg.start,
+                    end_sec: seg.end,
+                    text: seg.text.trim().to_string(),
+                });
+            }
+        }
+    }
+
+    let _ = std::fs::remove_file(&decoded.wav_16k_path);
+
+    // Aplica regras de substituição do dicionário
+    if cfg_snapshot.dictionary.enabled {
+        full_text = crate::dictionary::apply_replacements(
+            &full_text,
+            &cfg_snapshot.dictionary.replacements,
+        );
+        for seg in &mut segments {
+            seg.text = crate::dictionary::apply_replacements(
+                &seg.text,
+                &cfg_snapshot.dictionary.replacements,
+            );
+        }
+    }
+
+    Ok(TranscriptionFileResult {
+        text: full_text.trim().to_string(),
+        duration_sec: decoded.duration_sec,
+        segments,
     })
 }
 

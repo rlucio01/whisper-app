@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Settings, { type SettingsTab } from "./Settings";
 import History from "./History";
+import AudioFileTranscribe from "./AudioFileTranscribe";
+import MeetingsView from "./MeetingsView";
 import {
   DEFAULT_HOTKEY,
   displayHotkey,
@@ -22,7 +24,7 @@ type Status =
   | "complete"
   | "error";
 
-type View = "main" | "settings" | "history";
+type View = "main" | "file_transcribe" | "meetings" | "settings" | "history";
 
 function App() {
   const [view, setView] = useState<View>("main");
@@ -33,6 +35,10 @@ function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [hotkey, setHotkey] = useState(DEFAULT_HOTKEY);
+  const [secondaryHotkey, setSecondaryHotkey] = useState("");
+  const [translateToggleHotkey, setTranslateToggleHotkey] = useState("F10");
+  const [translateEnabled, setTranslateEnabled] = useState(false);
+  const [meetingInitialAudio, setMeetingInitialAudio] = useState<string | null>(null);
   const [handsFreeHotkey, setHandsFreeHotkey] = useState("");
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [testText, setTestText] = useState("");
@@ -55,12 +61,23 @@ function App() {
   // Relê o config sempre que a tela principal volta a ficar visível
   useEffect(() => {
     if (view !== "main") return;
-    invoke<{ hotkey: string; hands_free_hotkey?: string }>("get_config")
+    invoke<{
+      hotkey: string;
+      secondary_hotkey?: string;
+      translate_toggle_hotkey?: string;
+      hands_free_hotkey?: string;
+      translate?: { enabled: boolean; target_language: string };
+    }>("get_config")
       .then((cfg) => {
         setHotkey(cfg.hotkey.trim() || DEFAULT_HOTKEY);
+        setSecondaryHotkey(cfg.secondary_hotkey ? cfg.secondary_hotkey.trim() : "");
+        setTranslateToggleHotkey(cfg.translate_toggle_hotkey ? cfg.translate_toggle_hotkey.trim() : "F10");
         setHandsFreeHotkey(
           cfg.hands_free_hotkey ? cfg.hands_free_hotkey.trim() : "",
         );
+        if (cfg.translate) {
+          setTranslateEnabled(cfg.translate.enabled);
+        }
       })
       .catch(() => {});
   }, [view]);
@@ -69,6 +86,12 @@ function App() {
     const unlistenFns: UnlistenFn[] = [];
     const track = (p: Promise<UnlistenFn>) =>
       p.then((fn) => unlistenFns.push(fn));
+
+    track(
+      listen<boolean>("translation-toggled", (e) => {
+        setTranslateEnabled(e.payload);
+      })
+    );
 
     track(
       listen("open-updates-tab", () => {
@@ -145,6 +168,14 @@ function App() {
       const mod = MOD_CODE_TO_NAME[e.code];
       if (mod) heldModsRef.current.add(mod);
 
+      // 0. Alternar tradução para inglês (ex: F10)
+      if (isHotkeyMatch(e, translateToggleHotkey || "F10", heldModsRef.current)) {
+        e.preventDefault();
+        e.stopPropagation();
+        invoke("toggle_translation").catch(console.error);
+        return;
+      }
+
       // 1. Hands-free toggle
       if (handsFreeHotkey && isHotkeyMatch(e, handsFreeHotkey, heldModsRef.current)) {
         e.preventDefault();
@@ -153,8 +184,12 @@ function App() {
         return;
       }
 
-      // 2. Push-to-talk (segurar para gravar)
-      if (isHotkeyMatch(e, hotkey, heldModsRef.current)) {
+      // 2. Push-to-talk principal ou secundário (teclado)
+      const matchesMainPtt = isHotkeyMatch(e, hotkey, heldModsRef.current);
+      const matchesSecPtt =
+        secondaryHotkey && isHotkeyMatch(e, secondaryHotkey, heldModsRef.current);
+
+      if (matchesMainPtt || matchesSecPtt) {
         e.preventDefault();
         e.stopPropagation();
         if (!isPttActiveLocalRef.current && statusRef.current !== "recording") {
@@ -193,7 +228,7 @@ function App() {
       window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("blur", onBlur);
     };
-  }, [view, hotkey, handsFreeHotkey]);
+  }, [view, hotkey, secondaryHotkey, handsFreeHotkey, translateToggleHotkey]);
 
   const statusLabel: Record<Status, string> = {
     idle: "Aguardando atalho",
@@ -252,6 +287,34 @@ function App() {
     );
   }
 
+  if (view === "file_transcribe") {
+    return (
+      <main className="container">
+        <AudioFileTranscribe
+          onBack={() => setView("main")}
+          onSendToMeeting={(path) => {
+            setMeetingInitialAudio(path);
+            setView("meetings");
+          }}
+        />
+      </main>
+    );
+  }
+
+  if (view === "meetings") {
+    return (
+      <main className="container">
+        <MeetingsView
+          onBack={() => {
+            setMeetingInitialAudio(null);
+            setView("main");
+          }}
+          initialAudioPath={meetingInitialAudio}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="container">
       <header className="app-header">
@@ -263,6 +326,44 @@ function App() {
           <p className="tagline">Ditado por voz com IA</p>
         </div>
         <div className="app-header-actions">
+          <button
+            className={`header-pill-btn ${translateEnabled ? "active" : ""}`}
+            onClick={() => invoke("toggle_translation").catch(console.error)}
+            title={`Alternar tradução para inglês (${displayHotkey(translateToggleHotkey || "F10")})`}
+          >
+            <span className="pill-dot" />
+            <span className="pill-label">Tradução: {translateEnabled ? "EN" : "Off"}</span>
+            <kbd className="pill-kbd">{translateToggleHotkey || "F10"}</kbd>
+          </button>
+
+          <button
+            className="icon-btn"
+            onClick={() => setView("file_transcribe")}
+            title="Transcrever Arquivo de Áudio (MP3, OGG, WAV...)"
+            aria-label="Transcrever Arquivo"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <path d="M12 18v-6" />
+              <path d="M9 15l3-3 3 3" />
+            </svg>
+          </button>
+
+          <button
+            className="icon-btn"
+            onClick={() => setView("meetings")}
+            title="Reuniões e Atas com Diarização por Orador"
+            aria-label="Reuniões"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </button>
+
           <button
             className="icon-btn"
             onClick={() => setView("history")}
@@ -460,12 +561,14 @@ function App() {
 
       <section className="hint">
         <p>
-          Segure <kbd>{displayHotkey(hotkey)}</kbd>, fale, e solte para
-          transcrever.
+          Segure <kbd>{displayHotkey(hotkey)}</kbd>
+          {secondaryHotkey ? (
+            <> ou <kbd>{displayHotkey(secondaryHotkey)}</kbd></>
+          ) : null}
+          , fale, e solte para transcrever.
         </p>
         <p className="hint-secondary">
-          Fechar esta janela minimiza o app para a bandeja do sistema.
-          Para sair de verdade, use o menu do ícone na bandeja.
+          Pressione <kbd>{displayHotkey(translateToggleHotkey || "F10")}</kbd> para ligar/desligar a tradução para inglês. Fechar esta janela minimiza o app para a bandeja do sistema.
         </p>
       </section>
     </main>

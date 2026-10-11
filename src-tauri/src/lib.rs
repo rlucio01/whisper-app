@@ -11,6 +11,7 @@
 
 mod active_app;
 mod audio;
+pub mod audio_decode;
 mod commands;
 mod config;
 mod hardware;
@@ -27,6 +28,7 @@ mod usage;
 mod visual;
 mod gpu_runtime;
 pub mod dictionary;
+pub mod meeting;
 
 use std::sync::{Arc, Mutex};
 
@@ -156,6 +158,8 @@ pub fn run() {
                 Arc::new(Mutex::new(usage::UsageTracker::load_or_new(&app_data_dir)));
             app.manage(usage_tracker);
 
+            app.manage(meeting::MeetingService::spawn(app.handle().clone()));
+
             // Sobe as threads de background e guarda os handles como state.
             // Ordem importa (dependência entre serviços):
             //   1. LlmService     (final da cadeia)
@@ -228,6 +232,16 @@ pub fn run() {
             commands::delete_gpu_runtime,
             commands::get_frequent_words,
             commands::clear_frequent_words,
+            commands::toggle_translation,
+            commands::pick_audio_file,
+            commands::transcribe_audio_file,
+            commands::start_meeting_recording,
+            commands::stop_meeting_recording,
+            commands::cancel_meeting_recording,
+            commands::process_meeting,
+            commands::get_meetings,
+            commands::delete_meeting,
+            commands::set_meeting_action_done,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o app Tauri");
@@ -405,10 +419,10 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Alterna a tradução pelo tray, persistindo exatamente no mesmo config que
+/// Alterna a tradução pelo tray ou atalho global, persistindo exatamente no mesmo config que
 /// a tela de Configurações usa. Se a escrita falhar, o item visual volta ao
 /// estado anterior para não prometer uma mudança que não foi salva.
-fn toggle_translation<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+pub fn toggle_translation<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     let state = app.state::<config::SharedConfig>();
     let Ok(mut guard) = state.lock() else {
         return;
@@ -436,6 +450,10 @@ fn toggle_translation<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
         }
     } else {
         let _ = app.emit("config-changed", &updated);
+        let _ = app.emit("translation-toggled", new_enabled);
+        if updated.sound_feedback {
+            sound::play(app, sound::Kind::End);
+        }
     }
     let current_enabled = state
         .lock()

@@ -128,6 +128,29 @@ pub fn sync<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<(), Strin
         &[("push-to-talk", &ptt_string), ("hands-free", hf_string)],
     )?;
 
+    let sec_string = cfg.secondary_hotkey.trim();
+    let maybe_mouse = modkey::parse_mouse_button(sec_string);
+    let sec_kind = if maybe_mouse.is_some() || sec_string.is_empty() {
+        None
+    } else {
+        parse_optional_distinct(
+            sec_string,
+            "push-to-talk secundário",
+            &[("push-to-talk principal", &ptt_string)],
+        )?
+    };
+
+    let tt_string = cfg.translate_toggle_hotkey.trim();
+    let tt_kind = parse_optional_distinct(
+        tt_string,
+        "alternar tradução",
+        &[
+            ("push-to-talk", &ptt_string),
+            ("hands-free", hf_string),
+            ("recolar", rp_string),
+        ],
+    )?;
+
     let gs = app.global_shortcut();
     gs.unregister_all()
         .map_err(|e| format!("falha ao desregistrar atalhos anteriores: {}", e))?;
@@ -135,6 +158,11 @@ pub fn sync<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<(), Strin
     if let HotkeyKind::Standard(shortcut) = ptt_kind {
         gs.on_shortcut(shortcut, handler())
             .map_err(|e| format!("falha ao registrar atalho push-to-talk: {}", e))?;
+    }
+
+    if let Some(HotkeyKind::Standard(shortcut)) = &sec_kind {
+        gs.on_shortcut(*shortcut, handler())
+            .map_err(|e| format!("falha ao registrar atalho push-to-talk secundário: {}", e))?;
     }
 
     if let Some(HotkeyKind::Standard(shortcut)) = &hf_kind {
@@ -145,6 +173,11 @@ pub fn sync<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<(), Strin
     if let Some(HotkeyKind::Standard(shortcut)) = &rp_kind {
         gs.on_shortcut(*shortcut, repaste_handler())
             .map_err(|e| format!("falha ao registrar atalho de recolar: {}", e))?;
+    }
+
+    if let Some(HotkeyKind::Standard(shortcut)) = &tt_kind {
+        gs.on_shortcut(*shortcut, translation_toggle_handler())
+            .map_err(|e| format!("falha ao registrar atalho de tradução: {}", e))?;
     }
 
     // Combinações só de modificador vão pro hook em vez do plugin.
@@ -158,7 +191,18 @@ pub fn sync<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<(), Strin
                 on_release: Some(Arc::new(move || end_recording(&app_release))),
             })
         }
-        _ => None,
+        _ => match sec_kind {
+            Some(HotkeyKind::ModifiersOnly(mods)) => {
+                let app_press = app.clone();
+                let app_release = app.clone();
+                Some(ModTarget {
+                    mods,
+                    on_press: Arc::new(move || begin_recording(&app_press)),
+                    on_release: Some(Arc::new(move || end_recording(&app_release))),
+                })
+            }
+            _ => None,
+        },
     };
     let hf_mods = match hf_kind {
         Some(HotkeyKind::ModifiersOnly(mods)) => {
@@ -182,7 +226,20 @@ pub fn sync<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<(), Strin
         }
         _ => None,
     };
-    modkey::set_targets(ptt_mods, hf_mods, rp_mods);
+
+    let mouse_target = if let Some(button) = maybe_mouse {
+        let app_press = app.clone();
+        let app_release = app.clone();
+        Some(modkey::MouseTarget {
+            button,
+            on_press: Arc::new(move || begin_recording(&app_press)),
+            on_release: Arc::new(move || end_recording(&app_release)),
+        })
+    } else {
+        None
+    };
+
+    modkey::set_targets(ptt_mods, hf_mods, rp_mods, mouse_target);
 
     Ok(())
 }
@@ -305,6 +362,22 @@ fn do_repaste<R: Runtime>(app: &AppHandle<R>) {
             let _ = app.emit("insert-error", format!("{:#}", e));
         }
     }
+}
+
+/// Handler do atalho para alternar tradução automática (ex: F10).
+fn translation_toggle_handler<R: Runtime>(
+) -> impl Fn(&AppHandle<R>, &Shortcut, ShortcutEvent) + Send + Sync + 'static {
+    |app, _sc, event| {
+        if event.state() != ShortcutState::Pressed {
+            return;
+        }
+        do_toggle_translation(app);
+    }
+}
+
+/// Executa a alternância da tradução automática.
+fn do_toggle_translation<R: Runtime>(app: &AppHandle<R>) {
+    crate::toggle_translation(app);
 }
 
 /// Início de uma gravação (comum a atalho global ou acionamento local da UI).

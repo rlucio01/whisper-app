@@ -1,9 +1,21 @@
 export const DEFAULT_HOTKEY = "Ctrl+Super";
+export const DEFAULT_TRANSLATE_TOGGLE_HOTKEY = "F10";
+
+export const MOUSE_HOTKEY_PRESETS = [
+  { id: "Mouse4", label: "Mouse 4 (Voltar)", desc: "Botão lateral inferior do mouse" },
+  { id: "Mouse5", label: "Mouse 5 (Avançar)", desc: "Botão lateral superior do mouse" },
+  { id: "MiddleClick", label: "Botão do Meio", desc: "Clique da rodinha (Scroll)" },
+];
 
 /** "Super" é o nome que o backend entende pra tecla Windows, mas o usuário
  *  pensa nela como "Windows" — só troca pra exibição, o valor salvo continua
- *  em "Super". */
+ *  em "Super". Também traduz botões de mouse para nomes amigáveis. */
 export function displayHotkey(value: string): string {
+  if (!value) return "";
+  const v = value.trim().toLowerCase();
+  if (v === "mouse4" || v === "xbutton1" || v === "mouseback") return "Mouse 4 (Lateral Voltar)";
+  if (v === "mouse5" || v === "xbutton2" || v === "mouseforward") return "Mouse 5 (Lateral Avançar)";
+  if (v === "middleclick" || v === "middle" || v === "mouse3") return "Botão do Meio (Scroll)";
   return value.replace(/\bSuper\b/g, "Windows");
 }
 
