@@ -5,7 +5,7 @@
 <h1 align="center">Whisper App</h1>
 
 <p align="center">
-  Ditado por voz com IA para Windows. Segure um atalho, fale e solte: o texto
+  Ditado por voz com IA para Windows, Linux e macOS. Segure um atalho, fale e solte: o texto
   sai reformatado e já colado no aplicativo em que você está.
 </p>
 
@@ -16,7 +16,7 @@
   <a href="https://github.com/microsoft/winget-pkgs/pull/449091">
     <img src="https://img.shields.io/badge/winget-rlucio01.WhisperApp-0078D6?logo=windows" alt="Disponível no Winget" />
   </a>
-  <img src="https://img.shields.io/badge/plataforma-Windows-0078D6" alt="Plataforma: Windows" />
+  <img src="https://img.shields.io/badge/plataformas-Windows%20%7C%20Linux%20%7C%20macOS-0078D6" alt="Plataformas: Windows | Linux | macOS" />
   <img src="https://img.shields.io/badge/tamanho%20em%20idle-%3C7MB-brightgreen" alt="Menos de 7MB em idle" />
 </p>
 
@@ -98,31 +98,130 @@ Stack: **Tauri 2 + React 19 + TypeScript + Rust**.
 
 ## Instalação (uso normal, sem compilar)
 
-### Via Windows Package Manager (Winget)
+Todos os instaladores oficiais estao disponiveis para download direto na [pagina de Releases do GitHub](https://github.com/rlucio01/whisper-app/releases/latest).
 
-A forma mais rápida para quem já tem o Winget (Windows 10/11):
+---
+
+### Windows (10 e 11)
+
+Voce pode instalar no Windows de duas formas:
+
+#### Opcao A: Windows Package Manager (Winget) - Recomendado
+
+Abra o Terminal ou PowerShell e execute:
 
 ```powershell
 winget install rlucio01.WhisperApp
 ```
 
-Para atualizar para a versão mais recente:
+Para atualizar posteriormente quando houver nova versao:
 
 ```powershell
 winget upgrade rlucio01.WhisperApp
 ```
 
-### Via instalador manual
+#### Opcao B: Instalador Manual (.exe ou .msi)
 
-1. Baixe o instalador mais recente na
-   [página de Releases](https://github.com/rlucio01/whisper-app/releases/latest)
-   (`.msi` ou `.exe`, ambos instalam o aplicativo).
-2. Execute o instalador e abra o Whisper App.
-3. Na primeira execução, abra **Configurações** (ícone de engrenagem) e escolha um
-   provedor de LLM inserindo sua chave de API (veja a seção
-   [Configuração](#configuração) abaixo).
+1. Baixe o instalador `whisper_app_1.0.0_x64-setup.exe` (ou `whisper_app_1.0.0_x64_en-US.msi`) na [pagina de Releases](https://github.com/rlucio01/whisper-app/releases/latest).
+2. Execute o instalador baixado e siga as instrucoes na tela.
+3. Abra o Whisper App pelo Menu Iniciar.
 
-Após isso, novas versões são notificadas e atualizadas diretamente dentro do aplicativo.
+---
+
+### Linux (Ubuntu, Debian e derivados)
+
+Para distribuicoes baseadas em Debian (Ubuntu, Linux Mint, Pop!_OS, Zorin OS):
+
+#### Passo 1: Baixar o pacote .deb
+
+Baixe o arquivo `whisper_app_1.0.0_amd64.deb` na [pagina de Releases](https://github.com/rlucio01/whisper-app/releases/latest).
+
+#### Passo 2: Instalar o pacote
+
+Abra o terminal na pasta onde fez o download e execute:
+
+```bash
+sudo dpkg -i whisper_app_1.0.0_amd64.deb
+sudo apt-get install -f
+```
+
+*(O comando `apt-get install -f` garante que quaisquer bibliotecas do sistema necessarias, como webkit2gtk e alsa, sejam instaladas automaticamente).*
+
+#### Passo 3: Executar
+
+Abra o menu de aplicativos do seu sistema e procure por **Whisper App**, ou digite no terminal:
+
+```bash
+whisper_app
+```
+
+---
+
+### Linux Universal (.AppImage - Fedora, Arch Linux, Manjaro, openSUSE)
+
+O formato AppImage roda diretamente sem necessidade de instalacao em qualquer distribuicao Linux moderna:
+
+#### Passo 1: Baixar o .AppImage
+
+Baixe o arquivo `whisper_app_1.0.0_amd64.AppImage` na [pagina de Releases](https://github.com/rlucio01/whisper-app/releases/latest).
+
+#### Passo 2: Conceder permissao de execucao
+
+Abra o terminal e execute:
+
+```bash
+chmod +x whisper_app_1.0.0_amd64.AppImage
+```
+
+Ou clique com o botao direito no arquivo, va em **Propriedades -> Permissoes** e marque a opcao **Permitir execucao do arquivo como programa**.
+
+#### Passo 3: Executar o aplicativo
+
+Execute com um duplo clique no arquivo ou via terminal:
+
+```bash
+./whisper_app_1.0.0_amd64.AppImage
+```
+
+> **Dica para usuarios Linux (X11 vs Wayland):**
+> Em sessoes X11, os atalhos globais e a colagem automatica funcionam imediatamente. Em sessoes Wayland (padrao em versoes recentes do GNOME e Ubuntu), certifique-se de que o gerenciador de janelas permita atalhos globais para aplicativos em segundo plano nas configuracoes de acessibilidade do sistema.
+
+---
+
+### macOS (Apple Silicon e Intel)
+
+O Whisper App possui suporte nativo para computadores Apple (M1, M2, M3, M4 e processadores Intel):
+
+#### Passo 1: Baixar a imagem .dmg
+
+Baixe o instalador `whisper_app_1.0.0_aarch64.dmg` na [pagina de Releases](https://github.com/rlucio01/whisper-app/releases/latest).
+
+#### Passo 2: Instalar no sistema
+
+1. De um duplo clique no arquivo `.dmg` baixado para abrir o instalador.
+2. Arraste o icone do **Whisper App** para a pasta **Aplicativos** (**Applications**).
+3. Ejete a imagem de disco e abra o Whisper App pela pasta Aplicativos ou pelo Spotlight (`Cmd + Espaco`).
+
+#### Passo 3: Permissoes essenciais do macOS
+
+Para que o ditado por voz e a colagem automatica funcionem no macOS, sao necessarias duas autorizacoes do sistema:
+
+1. **Permissao de Microfone:**
+   - Na primeira vez em que voce acionar o ditado, o macOS exibira uma solicitacao de acesso ao microfone. Clique em **OK** para permitir a captura de voz.
+2. **Permissao de Acessibilidade (para colagem automatica):**
+   - Para que o aplicativo possa colar o texto transcrito diretamente no aplicativo em foco via atalho do sistema, abra:
+   - **Ajustes do Sistema -> Privacidade e Seguranca -> Acessibilidade**
+   - Localize o **Whisper App** e ative a chave de permissao.
+3. **Aviso de desenvolvedor nao verificado (Gatekeeper):**
+   - Como o aplicativo e disponibilizado de forma independente fora da Mac App Store, caso o macOS exiba o aviso de que o desenvolvedor nao pode ser verificado na primeira abertura:
+   - Clique com o botao direito (ou segure `Control` e clique) sobre o icone do Whisper App na pasta Aplicativos e selecione **Abrir**.
+   - Em seguida, confirme clicando em **Abrir** na janela que surgir.
+   - Alternativamente, execute este comando no Terminal do macOS:
+     ```bash
+     xattr -cr /Applications/whisper_app.app
+     ```
+
+Após a instalacao inicial, novas versoes sao notificadas e atualizadas diretamente dentro do aplicativo em todos os sistemas operacionais.
 
 ## Fluxos de Execução
 
@@ -167,17 +266,27 @@ Na primeira utilização, acesse Configurações para definir:
    Groq (cloud, mais rápido).
 3. Se optar pelo modo local: faça o download do modelo desejado (o modelo Small é o
    padrão recomendado para uso diário em CPU ou GPU).
-4. O **atalho global principal** padrão é `Ctrl+Windows`. É possível também configurar um **atalho secundário** (com suporte aos botões laterais `Mouse 4` e `Mouse 5` ou botão do meio) e um **atalho para alternar tradução** (padrão `F10`).
-5. O aplicativo vem configurado para **iniciar com o Windows** por padrão (opção ajustável nas configurações).
+4. O **atalho global principal** padrão é `Ctrl+Windows` (no Windows) ou `Cmd+Option` (no macOS). É possível também configurar um **atalho secundário** (com suporte aos botões laterais do mouse no Windows ou combinação alternativa de teclado) e um **atalho para alternar tradução** (padrão `F10`).
+5. O aplicativo vem configurado para **iniciar com o sistema operacional** por padrão (opção ajustável nas configurações).
 6. (Opcional) Dicionário pessoal, regras de substituição "De -> Para", modo hands-free, microfone específico, etc.
 
-Arquivo de configuração: `%APPDATA%\com.rlucio.whisperapp\config.json`. Nenhuma
-chave de API fica gravada no código: tudo permanece salvo apenas no seu arquivo local.
+### Onde ficam salvos os arquivos de configuração e modelos
+
+Nenhuma chave de API fica gravada no código: tudo permanece salvo apenas no disco local do seu usuário.
+
+- **Windows:**
+  - Configurações: `%APPDATA%\com.rlucio.whisperapp\config.json`
+  - Modelos locais: `%APPDATA%\com.rlucio.whisperapp\models\`
+- **Linux:**
+  - Configurações: `~/.config/com.rlucio.whisperapp/config.json`
+  - Modelos locais: `~/.local/share/com.rlucio.whisperapp/models/`
+- **macOS:**
+  - Configurações: `~/Library/Application Support/com.rlucio.whisperapp/config.json`
+  - Modelos locais: `~/Library/Application Support/com.rlucio.whisperapp/models/`
 
 ## Modelos do Whisper (modo local)
 
-Os modelos podem ser baixados na interface (Configurações → Transcrição → Local) e ficam salvos em
-`%APPDATA%\com.rlucio.whisperapp\models\`.
+Os modelos podem ser baixados diretamente na interface (Configurações → Transcrição → Local) e ficam salvos na pasta de modelos do seu sistema operacional.
 
 | Modelo         | Arquivo                            | Tamanho | Uso                           |
 |----------------|-------------------------------------|---------|-------------------------------|
@@ -256,9 +365,12 @@ CLAUDE.md              - notas de arquitetura e diretrizes para desenvolvimento
 
 ## Compatibilidade
 
-O desenvolvimento inicial é focado no Windows. O código em Rust foi estruturado com `#[cfg(target_os = "...")]`
-onde há particularidades de plataforma, permitindo expansões futuras para outros sistemas operacionais.
+O Whisper App possui suporte nativo oficial multiplataforma a partir da versão 1.0.0:
+
+- **Windows:** Windows 10 e Windows 11 (64-bit). Suporte completo a atalhos de mouse de baixo nível (`WH_MOUSE_LL`), aceleração de hardware via DirectX/DXGI e instalador Winget.
+- **Linux:** Ubuntu, Debian, Fedora, Arch Linux, Pop!_OS, Linux Mint e outras distribuições modernas (64-bit via pacotes `.deb` e executáveis universais `.AppImage`). Suporte a servidores gráficos X11 e Wayland.
+- **macOS:** macOS 12 (Monterey), 13 (Ventura), 14 (Sonoma) e 15 (Sequoia), com suporte nativo em processadores Apple Silicon (M1, M2, M3, M4) e computadores Apple com processador Intel.
 
 ## Licença
 
-Repositório para uso pessoal e transparência. Fique à vontade para explorar o código; não licenciado para redistribuição ou exploração comercial.
+Repositório para uso pessoal e transparência. Sinta-se livre para explorar o código; não licenciado para redistribuição ou exploração comercial.
