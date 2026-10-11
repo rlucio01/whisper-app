@@ -371,7 +371,50 @@ pub async fn pick_audio_file() -> Result<Option<String>, String> {
                 Ok(Some(path_str))
             }
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "macos")]
+        {
+            let script = r#"POSIX path of (choose file of type {"public.audio", "mp3", "wav", "m4a", "ogg", "flac", "aac", "wma"} with prompt "Selecionar Arquivo de Audio")"#;
+            let output = std::process::Command::new("osascript")
+                .args(["-e", script])
+                .output()
+                .map_err(|e| format!("Falha ao invocar diálogo no macOS: {e}"))?;
+
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if path_str.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(path_str))
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let zenity_res = std::process::Command::new("zenity")
+                .args(["--file-selection", "--title=Selecionar Arquivo de Audio", "--file-filter=Audio | *.mp3 *.ogg *.wav *.flac *.m4a *.aac *.wma"])
+                .output();
+            if let Ok(output) = zenity_res {
+                if output.status.success() {
+                    let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path_str.is_empty() {
+                        return Ok(Some(path_str));
+                    }
+                }
+            }
+
+            let kdialog_res = std::process::Command::new("kdialog")
+                .args(["--getopenfilename", ".", "*.mp3 *.ogg *.wav *.flac *.m4a *.aac *.wma"])
+                .output();
+            if let Ok(output) = kdialog_res {
+                if output.status.success() {
+                    let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path_str.is_empty() {
+                        return Ok(Some(path_str));
+                    }
+                }
+            }
+
+            Ok(None)
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
         {
             Ok(None)
         }

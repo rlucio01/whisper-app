@@ -112,11 +112,57 @@ pub fn detect() -> Option<ActiveApp> {
     })
 }
 
-// ---------- Não-Windows (stub) ----------
+// ---------- macOS ----------
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 pub fn detect() -> Option<ActiveApp> {
-    // PLATAFORMA: implementar quando adicionarmos suporte a macOS/Linux.
+    let output = std::process::Command::new("osascript")
+        .args([
+            "-e",
+            "tell application \"System Events\" to get name of first application process whose frontmost is true",
+        ])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !name.is_empty() {
+            return Some(ActiveApp {
+                exe_name: name,
+                window_title: String::new(),
+                target_hwnd: None,
+            });
+        }
+    }
+    None
+}
+
+// ---------- Linux ----------
+
+#[cfg(target_os = "linux")]
+pub fn detect() -> Option<ActiveApp> {
+    let output = std::process::Command::new("xdotool")
+        .args(["getwindowfocus", "getwindowname"])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let title = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !title.is_empty() {
+            return Some(ActiveApp {
+                exe_name: title.clone(),
+                window_title: title,
+                target_hwnd: None,
+            });
+        }
+    }
+    None
+}
+
+// ---------- Outros sistemas ----------
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub fn detect() -> Option<ActiveApp> {
     None
 }
 

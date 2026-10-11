@@ -258,6 +258,25 @@ fn run_download_pipeline<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut tar_cmd = std::process::Command::new("tar");
+        tar_cmd
+            .arg("-xf")
+            .arg(&zip_file)
+            .arg("-C")
+            .arg(&dest_dir);
+
+        let output = tar_cmd
+            .output()
+            .context("falha ao executar tar para extrair runtime GPU")?;
+
+        if !output.status.success() {
+            let err_str = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("falha ao extrair arquivo zip do runtime: {}", err_str));
+        }
+    }
+
     // Se o zip extraiu numa pasta Release/, movemos os arquivos para a raiz de dest_dir
     let sub_release = dest_dir.join("Release");
     if sub_release.exists() && sub_release.is_dir() {

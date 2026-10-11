@@ -58,6 +58,16 @@
         "installerHooks": "./windows/hooks.nsh"
       }
     },
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "10.15",
+      "infoPlist": "Info.plist"
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libasound2", "libssl3"]
+      }
+    },
     "resources": {
       "./windows/vc_redist.x64.exe": "vc_redist.x64.exe"
     },
