@@ -6,24 +6,26 @@ para macOS/Linux). Stack: Tauri 2 + React 19 + TypeScript + Rust.
 ## Arquitetura em camadas
 
 ```
-React (src/)                  - UI: App (status, scratchpad), Settings, History, Overlay
+React (src/)                  - UI: App (status, scratchpad), AudioFileTranscribe, MeetingsView, Settings, History, Overlay
     ↕ invoke() / events
 Rust (src-tauri/src/)         - lógica de sistema:
   ├── active_app               detecção do app em foco (Win32) para hint do LLM
   ├── audio                    captura via cpal -> WAV em memória (thread própria)
+  ├── audio_decode             decodificação pura em Rust (symphonia) de MP3/OGG/WAV/FLAC/M4A/AAC
   ├── commands                 comandos Tauri chamáveis do frontend
   ├── config                   settings persistentes em JSON e auto-save
   ├── dictionary               dicionário pessoal, regras de substituição e frequência
   ├── gpu_runtime              gerenciamento e teste de IA local (GPU/CPU)
   ├── hardware                 detecção de adaptadores de vídeo via DXGI
   ├── history                  histórico de ditados (JSON Lines em disco)
-  ├── hotkey                   atalhos globais configuráveis (PTT, hands-free, recolar)
+  ├── hotkey                   atalhos globais (PTT principal/secundário, hands-free, recolar, tradução)
   ├── insert                   clipboard + Ctrl+V via enigo + arboard
   ├── lib                      inicialização, serviços, tray e ciclo de vida
-  ├── llm                      OpenAI/Anthropic/OpenRouter/Groq/Gemini/xAI para reformatar e traduzir
+  ├── llm                      OpenAI/Anthropic/OpenRouter/Groq/Gemini/xAI para reformatar, traduzir e atas
+  ├── meeting                  gravação de reuniões ao vivo (WASAPI thread-safe), diarização e atas
   ├── models                   download e gerenciamento dos modelos Whisper
-  ├── modkey                   monitoramento de teclas modificadoras globais
-  ├── sound                    feedback sonoro de início/fim de gravação
+  ├── modkey                   hook Win32 de teclado e mouse de baixo nível (Mouse 4/5/Meio)
+  ├── sound                    feedback sonoro de início/fim de gravação e toggle de tradução
   ├── system_audio             captura/mute de áudio do sistema
   ├── transcription            whisper.cpp local OU cloud APIs (OpenAI/Groq)
   └── visual                   overlay flutuante + tray e badge de update
@@ -129,6 +131,8 @@ Fluxo do usuário:
 - `translate: { enabled, target_language }`: tradução automática.
 - `visual_indicator: none|floating|tray|both`: indicador visual.
 - `hotkey`: atalho push-to-talk (formato accelerator, default `"Ctrl+Super"`).
+- `secondary_hotkey`: atalho secundário (mouse buttons: `"Mouse4"`, `"Mouse5"`, `"MiddleClick"` ou accelerator de teclado).
+- `translate_toggle_hotkey`: atalho para alternar tradução (default `"F10"`).
 - `hands_free_hotkey`: atalho opcional para modo hands-free.
 - `repaste_hotkey`: atalho opcional para recolar o último texto transcrito.
 - `transcription_provider: local|openai_cloud|groq_cloud`: backend de transcrição.

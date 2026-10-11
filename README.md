@@ -37,6 +37,25 @@ megabytes parados na bandeja do sistema.
 
 ## Principais recursos
 
+- **Reuniões Inteligentes & Atas com Diarização por Orador**: grave reuniões ao
+  vivo pelo microfone ou importe arquivos gravados de reuniões externas (Zoom,
+  Microsoft Teams, Google Meet). A IA transcreve, separa as falas por orador com
+  timestamps precisos, sintetiza um resumo executivo, registra decisões principais
+  e monta um plano de ação interativo com tarefas, responsáveis, prazos e caixas de
+  seleção que persistem o status de conclusão no disco.
+- **Transcrição Direta de Arquivos de Áudio**: transcreva gravações de áudio locais
+  nos formatos **OGG, WAV, MP3, FLAC, M4A e AAC** sem codecs ou compiladores C
+  adicionais (decodificação pura em Rust via Symphonia). Visualize em texto completo
+  ou em segmentos temporais com timestamps, copie, exporte para `.txt` ou gere uma
+  ata de reunião a partir do áudio com 1 clique.
+- **Atalho Rápido de Tradução Automática (F10)**: tecla de atalho global e local
+  (padrão `F10`) para ligar ou desligar instantaneamente a tradução para inglês (ou
+  o idioma configurado), com feedback sonoro de confirmação, sincronização com a
+  bandeja do sistema e botão com indicador no cabeçalho.
+- **Atalho Secundário de Push-to-Talk (Mouse ou Teclado)**: suporte a botões extras
+  do mouse (`Mouse 4 / Lateral Voltar`, `Mouse 5 / Lateral Avançar`, `Botão do Meio / Scroll`)
+  via hook Win32 de baixo nível (`WH_MOUSE_LL`) ou combinação alternativa de teclado,
+  operando em paralelo ao atalho principal.
 - **Área de Teste de Digitação**: bloco interativo na tela inicial com botão
   dedicado de gravação, suporte a Push-to-Talk dentro do campo e contadores em
   tempo real de palavras, caracteres e estimativa de tokens (~BPE).
@@ -63,8 +82,8 @@ megabytes parados na bandeja do sistema.
 - Indicador visual **flutuante** com onda de áudio ao vivo e controles no
   hover (cancelar ou concluir agora), indicador na **bandeja do sistema**,
   ou ambos.
-- **Atalhos configuráveis**: push-to-talk, modo hands-free (toca uma vez
-  para começar, de novo para parar) e atalho para recolar a última
+- **Atalhos configuráveis**: push-to-talk principal e secundário, modo hands-free (toca uma vez
+  para começar, de novo para parar), atalho de alternância de tradução e atalho para recolar a última
   transcrição sem regravar.
 - **Histórico de ditados** pesquisável, com contagem de palavras e opções de
   copiar, recolar ou apagar por entrada.
@@ -105,15 +124,37 @@ winget upgrade rlucio01.WhisperApp
 
 Após isso, novas versões são notificadas e atualizadas diretamente dentro do aplicativo.
 
-## Fluxo de Execução
+## Fluxos de Execução
+
+### 1. Ditado Instantâneo (Push-to-Talk / Hands-Free)
 
 ```
-hotkey pressionado
+hotkey (teclado ou mouse) pressionado
     → grava áudio (cpal)
         → transcreve (whisper.cpp local OU OpenAI/Groq na nuvem)
             → aplica dicionário e regras de substituição
-                → reformata via LLM (provedor à sua escolha)
+                → reformata via LLM (com adaptação de tom pelo app em foco)
                     → cola no app em foco (clipboard + Ctrl+V)
+```
+
+### 2. Transcrição de Arquivo de Áudio
+
+```
+seleção de arquivo (.mp3, .ogg, .wav, .m4a, .flac, .aac)
+    → decodificação nativa para mono 16 kHz (symphonia)
+        → transcrição em lote com timestamps (whisper local ou cloud)
+            → visualização com timestamps + exportação (.txt ou envio para atas)
+```
+
+### 3. Reuniões Inteligentes & Atas com Diarização
+
+```
+gravação ao vivo de reunião (cpal) OU importação de gravação externa
+    → transcrição segmentada com timestamps
+        → diarização por orador e análise com LLM
+            → síntese de resumo executivo + deliberações
+                → geração de plano de ação interativo com prazos por participante
+                    → persistência de ata em JSONL e exportação (.md)
 ```
 
 ## Configuração
@@ -126,7 +167,7 @@ Na primeira utilização, acesse Configurações para definir:
    Groq (cloud, mais rápido).
 3. Se optar pelo modo local: faça o download do modelo desejado (o modelo Small é o
    padrão recomendado para uso diário em CPU ou GPU).
-4. O **atalho global** padrão é `Ctrl+Windows` (alterável na interface).
+4. O **atalho global principal** padrão é `Ctrl+Windows`. É possível também configurar um **atalho secundário** (com suporte aos botões laterais `Mouse 4` e `Mouse 5` ou botão do meio) e um **atalho para alternar tradução** (padrão `F10`).
 5. O aplicativo vem configurado para **iniciar com o Windows** por padrão (opção ajustável nas configurações).
 6. (Opcional) Dicionário pessoal, regras de substituição "De -> Para", modo hands-free, microfone específico, etc.
 
@@ -180,23 +221,31 @@ Gera os instaladores `.msi` e `.exe` assinados em `src-tauri/target/release/bund
 ## Estrutura do projeto
 
 ```
-src/                   - UI React (App, Settings, History, Overlay)
+src/                   - UI React:
+  ├── App              - tela principal com navegação e área de teste de digitação
+  ├── AudioFileTranscribe - transcrição de arquivos de áudio (MP3, OGG, WAV, etc.)
+  ├── MeetingsView     - gravação de reuniões, diarização por orador e plano de ação
+  ├── Settings         - configurações com auto-save, provedores, modelos e atalhos
+  ├── History          - histórico pesquisável de ditados com contagem de palavras
+  └── Overlay          - indicador flutuante com forma de onda de áudio ao vivo
 src-tauri/src/         - Lógica de backend em Rust:
   ├── active_app       - detecção do aplicativo em foco (Win32)
   ├── audio            - captura via cpal, processamento de WAV em memória
+  ├── audio_decode     - decodificação pura em Rust de MP3, OGG, WAV, FLAC, M4A/AAC
   ├── commands         - comandos Tauri invocáveis pelo frontend
   ├── config           - configurações persistentes em JSON e auto-save
   ├── dictionary       - vocabulário pessoal, regras de substituição e frequência
   ├── gpu_runtime      - gerenciamento de execução em GPU e CPU
   ├── hardware         - detecção de GPUs instaladas via DXGI
   ├── history          - histórico de ditados em disco (JSON Lines)
-  ├── hotkey           - atalhos globais (push-to-talk, hands-free, recolar)
+  ├── hotkey           - atalhos globais (push-to-talk, hands-free, recolar, tradução)
   ├── insert           - colagem de texto via clipboard e simulação de teclas
   ├── lib              - ponto de entrada, serviços e menu na bandeja do sistema
-  ├── llm              - integração com provedores de IA e formatação de texto
+  ├── llm              - integração com provedores de IA, formatação e atas
+  ├── meeting          - serviço de reunião ao vivo (WASAPI thread-safe), diarização e atas
   ├── models           - download e gerenciamento dos modelos do Whisper
-  ├── modkey           - monitoramento de teclas modificadoras do teclado
-  ├── sound            - efeitos sonoros de início e término de gravação
+  ├── modkey           - hook Win32 de baixo nível para modificadores e botões do mouse
+  ├── sound            - efeitos sonoros de início, término e alternância de tradução
   ├── system_audio     - gerenciamento e pausa do áudio do sistema
   ├── transcription    - whisper.cpp local e integração cloud (OpenAI/Groq)
   └── visual           - overlay flutuante, indicador na bandeja e badge de update
