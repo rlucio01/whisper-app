@@ -148,8 +148,13 @@ Sempre via PowerShell no Windows:
 ```powershell
 .\scripts\dev.ps1              # dev com hot reload
 .\scripts\dev.ps1 build        # bundle assinado .msi/.exe
-cd src-tauri; cargo check      # validação Rust rápida
-npx tsc --noEmit               # validação TypeScript
+.\scripts\dev.ps1 test         # executa testes unitários Rust (cargo test)
+.\scripts\dev.ps1 check        # validação Rust rápida (cargo check)
+npm test                       # testes unitários do Frontend (Vitest)
+npm run test:watch             # testes do Frontend em modo watch
+npm run test:rust              # testes unitários Rust via script
+npm run test:all               # validação completa: tsc + Vitest + cargo test
+npm run check                  # checagem rápida: tsc + cargo check
 ```
 
 ## Modelos do Whisper

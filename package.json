@@ -7,7 +7,12 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:rust": "powershell -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 test",
+    "test:all": "tsc --noEmit && vitest run && powershell -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 test",
+    "check": "tsc --noEmit && powershell -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 check"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -19,10 +24,15 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^30.1.2",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^5.0.4"
   }
 }

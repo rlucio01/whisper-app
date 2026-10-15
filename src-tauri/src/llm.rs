@@ -994,3 +994,20 @@ fn format_llm_error(provider: &str, status: reqwest::StatusCode, body: &str) -> 
         anyhow!("{} API retornou {}: {}", provider, status, body)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_trailing_period() {
+        assert_eq!(strip_trailing_period("Olá mundo."), "Olá mundo");
+        assert_eq!(strip_trailing_period("Olá mundo.  "), "Olá mundo");
+        assert_eq!(strip_trailing_period("Aguarde..."), "Aguarde...");
+        assert_eq!(strip_trailing_period("Como vai?"), "Como vai?");
+        assert_eq!(strip_trailing_period("Atenção!"), "Atenção!");
+        assert_eq!(strip_trailing_period("Texto sem ponto"), "Texto sem ponto");
+        assert_eq!(strip_trailing_period(""), "");
+    }
+}
+

@@ -338,3 +338,46 @@ fn now_secs() -> u64 {
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_provider_limits_defaults() {
+        let groq = ProviderLimits::default_for("groq");
+        assert_eq!(groq.stt_rpm, 20);
+        assert_eq!(groq.llm_rpm, 30);
+        assert_eq!(groq.llm_tpm, 30_000);
+
+        let openai = ProviderLimits::default_for("openai");
+        assert_eq!(openai.stt_rpm, 50);
+        assert_eq!(openai.llm_rpm, 500);
+
+        let fallback = ProviderLimits::default_for("unknown");
+        assert_eq!(fallback.stt_rpm, 30);
+    }
+
+    #[test]
+    fn test_usage_report_calculation() {
+        let mut tracker = UsageTracker {
+            events: VecDeque::new(),
+            file_path: PathBuf::from("dummy_usage.json"),
+        };
+
+        // Adiciona 2 eventos de STT
+        tracker.events.push_back(UsageEvent {
+            timestamp: now_secs(),
+            provider: "groq".to_string(),
+            service: "stt".to_string(),
+            audio_seconds: 15.0,
+            tokens: 0,
+        });
+
+        let report = tracker.get_report("groq");
+        assert_eq!(report.provider, "groq");
+        assert_eq!(report.stt_requests_minute.current, 1.0);
+        assert_eq!(report.stt_audio_seconds_hour.current, 15.0);
+    }
+}
+

@@ -1,0 +1,113 @@
+name: CI (Testes Automatizados)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------
+  # Job 1: Testes e Validação do Frontend (TypeScript + React 19)
+  # Executa no Ubuntu para inicialização ultra-rápida (~30s a 1min).
+  # -------------------------------------------------------------
+  frontend:
+    name: Frontend (TypeScript & Vitest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Checagem estática de tipos (TypeScript)
+        run: npx tsc --noEmit
+
+      - name: Executar testes unitários (Vitest)
+        run: npm test
+
+      - name: Validar build de produção do frontend
+        run: npm run build
+
+  # -------------------------------------------------------------
+  # Job 2: Testes e Validação do Backend (Rust & Tauri)
+  # Executa no Windows nativo com cache de compilação.
+  # -------------------------------------------------------------
+  backend:
+    name: Backend (Rust Check & Tests)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar dependências npm
+        run: npm ci
+
+      - name: Instalar Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache de compilação do Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Instalar Ninja
+        run: choco install ninja -y
+
+      - name: Configurar ambiente e dependências
+        shell: bash
+        run: |
+          mkdir -p src-tauri/windows
+          if [ ! -f "src-tauri/windows/vc_redist.x64.exe" ]; then
+            curl -L -o src-tauri/windows/vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
+          fi
+
+      - name: Checagem de compilação Rust (cargo check)
+        shell: bash
+        env:
+          CMAKE_GENERATOR: "Ninja"
+          GGML_NATIVE: "OFF"
+          GGML_AVX: "ON"
+          GGML_AVX2: "OFF"
+          GGML_AVX512: "OFF"
+          GGML_FMA: "OFF"
+        run: |
+          cd src-tauri
+          cargo check
+
+      - name: Executar testes unitários Rust (cargo test)
+        shell: bash
+        env:
+          CMAKE_GENERATOR: "Ninja"
+          GGML_NATIVE: "OFF"
+          GGML_AVX: "ON"
+          GGML_AVX2: "OFF"
+          GGML_AVX512: "OFF"
+          GGML_FMA: "OFF"
+        run: |
+          cd src-tauri
+          cargo test --lib -- --nocapture

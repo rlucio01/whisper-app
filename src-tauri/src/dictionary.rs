@@ -273,3 +273,70 @@ pub fn clear_frequencies<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_whisper_prompt_empty() {
+        let cfg = DictionaryConfig::default();
+        assert_eq!(build_whisper_prompt(&cfg), None);
+
+        let mut cfg2 = DictionaryConfig::default();
+        cfg2.custom_words = vec!["   ".to_string(), "".to_string()];
+        assert_eq!(build_whisper_prompt(&cfg2), None);
+    }
+
+    #[test]
+    fn test_build_whisper_prompt_with_words() {
+        let mut cfg = DictionaryConfig::default();
+        cfg.custom_words = vec!["Tauri".to_string(), "Whisper".to_string(), "Rust".to_string()];
+        assert_eq!(
+            build_whisper_prompt(&cfg),
+            Some("Vocabulário: Tauri, Whisper, Rust.".to_string())
+        );
+    }
+
+    #[test]
+    fn test_build_whisper_prompt_disabled() {
+        let mut cfg = DictionaryConfig::default();
+        cfg.enabled = false;
+        cfg.custom_words = vec!["Tauri".to_string()];
+        assert_eq!(build_whisper_prompt(&cfg), None);
+    }
+
+    #[test]
+    fn test_apply_replacements_case_insensitive() {
+        let replacements = vec![
+            WordReplacement {
+                from: "anti gravidade".to_string(),
+                to: "Antigravity".to_string(),
+            },
+            WordReplacement {
+                from: "ia".to_string(),
+                to: "IA".to_string(),
+            },
+        ];
+
+        let text = "Usando o anti gravidade para acelerar a ia no meu app.";
+        let result = apply_replacements(text, &replacements);
+        assert_eq!(result, "Usando o Antigravity para acelerar a IA no meu app.");
+    }
+
+    #[test]
+    fn test_apply_replacements_word_boundaries() {
+        let replacements = vec![
+            WordReplacement {
+                from: "ia".to_string(),
+                to: "IA".to_string(),
+            },
+        ];
+
+        // "iniciando" contains "ia" inside, but it should not be replaced because it's not a word boundary
+        let text = "Ele estava iniciando o dia de trabalho com ia.";
+        let result = apply_replacements(text, &replacements);
+        assert_eq!(result, "Ele estava iniciando o dia de trabalho com IA.");
+    }
+}
+

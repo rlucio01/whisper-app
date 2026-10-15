@@ -104,6 +104,10 @@ if ($mode -eq "build") {
 } elseif ($mode -eq "check") {
     Set-Location src-tauri
     cargo check
+} elseif ($mode -eq "test") {
+    Set-Location src-tauri
+    $passArgs = if ($args.Count -gt 1) { $args[1..($args.Count - 1)] } else { @() }
+    cargo test @passArgs
 } else {
     npm run tauri dev
 }

@@ -590,3 +590,42 @@ pub fn save<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<()> {
         .with_context(|| format!("falha ao escrever config em {}", path.display()))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_validity() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.provider, LlmProvider::Openai);
+        assert_eq!(cfg.hotkey, "Ctrl+Super");
+        assert_eq!(cfg.transcription_provider, TranscriptionProvider::Local);
+        assert_eq!(cfg.whisper_model, WhisperModel::Small);
+        assert_eq!(cfg.overlay.scale, 0.75);
+    }
+
+    #[test]
+    fn test_backward_compatibility_empty_json() {
+        // Garantia crítica: um config.json legado ou vazio ({}) deve ser deserializado
+        // perfeitamente usando defaults para todos os campos, sem quebrar o app após updates.
+        let empty_json = "{}";
+        let parsed: Result<AppConfig, _> = serde_json::from_str(empty_json);
+        assert!(parsed.is_ok(), "Falha ao deserializar JSON vazio: {:?}", parsed.err());
+        let cfg = parsed.unwrap();
+        assert_eq!(cfg.provider, LlmProvider::Openai);
+        assert_eq!(cfg.hotkey, "Ctrl+Super");
+        assert_eq!(cfg.transcription_provider, TranscriptionProvider::Local);
+    }
+
+    #[test]
+    fn test_config_serialization_roundtrip() {
+        let original = AppConfig::default();
+        let serialized = serde_json::to_string(&original).expect("falha ao serializar");
+        let deserialized: AppConfig = serde_json::from_str(&serialized).expect("falha ao deserializar");
+        assert_eq!(original.provider, deserialized.provider);
+        assert_eq!(original.hotkey, deserialized.hotkey);
+        assert_eq!(original.whisper_model, deserialized.whisper_model);
+    }
+}
+
