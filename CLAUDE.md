@@ -157,6 +157,32 @@ npm run test:all               # validação completa: tsc + Vitest + cargo test
 npm run check                  # checagem rápida: tsc + cargo check
 ```
 
+## Testes Automatizados e CI
+
+A aplicação conta com uma esteira de testes contínuos automatizados para evitar que qualquer alteração quebre o app:
+
+1. **Frontend (Vitest + JSDOM)**:
+   - Configurado em `vite.config.ts` com ambiente `jsdom`.
+   - Setup global em `src/test/setup.ts` simulando APIs nativas do Tauri 2 (`@tauri-apps/api/core`, `event`, `plugin-updater`, etc.).
+   - Suítes em `src/*.test.ts`:
+     - `hotkeyFormat.test.ts`: mapeamento de aceleradores, atalhos do Windows (`Super`), botões extras de mouse (`Mouse4`, `Mouse5`, `MiddleClick`) e regras de correspondência.
+     - `useUpdater.test.ts`: ciclo de vida do auto-updater, silêncio no boot quando offline e notificações no tray.
+     - `sound.test.ts`: validação dos beeps de áudio via Web Audio API.
+   - Execução: `npm test` ou `npm run test:watch`.
+
+2. **Backend (Rust `cargo test`)**:
+   - Testes unitários puros integrados diretamente nos módulos:
+     - `config.rs`: garantia de **retrocompatibilidade** (um `config.json` legado ou vazio deve carregar sem panics graças a `#[serde(default)]`) e integridade de serialização.
+     - `dictionary.rs`: substituição textual direta case-insensitive com respeito estrito a limites de palavras (evita corrupção de substrings) e formatação de prompts de vocabulário.
+     - `llm.rs`: sanitização e remoção de ponto final preservando reticências (`...`), interrogações e exclamações.
+     - `usage.rs`: limites de taxa (RPM, RPD, TPM, TPD) por provedor e janelas de tempo.
+   - Execução: `.\scripts\dev.ps1 test` ou `npm run test:rust`.
+
+3. **Pipeline GitHub Actions (`.github/workflows/ci.yml`)**:
+   - Disparado automaticamente em todo `push` ou `pull_request` nas branches `main` e `master`.
+   - **Job Frontend** em `ubuntu-latest`: tipagem estática com TypeScript (`tsc --noEmit`), execução do Vitest e validação do bundle de produção (`vite build`).
+   - **Job Backend** em `windows-latest`: ambiente MSVC + Ninja, flags portáveis de AVX, `cargo check`, `cargo test --lib` e cache inteligente de crates (`swatinem/rust-cache`).
+
 ## Modelos do Whisper
 
 Gerenciados via interface ou armazenados em `%APPDATA%\com.rlucio.whisperapp\models\<filename>.bin`.

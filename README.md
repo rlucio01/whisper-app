@@ -16,6 +16,9 @@
   <a href="https://github.com/microsoft/winget-pkgs/pull/449091">
     <img src="https://img.shields.io/badge/winget-rlucio01.WhisperApp-0078D6?logo=windows" alt="Disponível no Winget" />
   </a>
+  <a href="https://github.com/rlucio01/whisper-app/actions/workflows/ci.yml">
+    <img src="https://github.com/rlucio01/whisper-app/actions/workflows/ci.yml/badge.svg" alt="CI status" />
+  </a>
   <img src="https://img.shields.io/badge/plataformas-Windows%20%7C%20Linux%20%7C%20macOS-0078D6" alt="Plataformas: Windows | Linux | macOS" />
   <img src="https://img.shields.io/badge/tamanho%20em%20idle-%3C7MB-brightgreen" alt="Menos de 7MB em idle" />
 </p>
@@ -326,6 +329,19 @@ O script prepara o ambiente MSVC + LLVM + Ninja antes de executar `npm run tauri
 ```
 
 Gera os instaladores `.msi` e `.exe` assinados em `src-tauri/target/release/bundle/`.
+
+### Testes Automatizados
+
+O repositório conta com uma esteira completa de testes unitários e CI contínuo para prevenir regressões:
+
+```powershell
+npm test                # Executa os 27 testes unitários do Frontend (Vitest)
+.\scripts\dev.ps1 test  # Executa os 11 testes unitários do Backend (Cargo test)
+npm run test:all        # Validação completa: tipagem (tsc) + Frontend + Backend
+npm run check           # Checagem estática de sintaxe e tipos (TypeScript + Rust)
+```
+
+Cada `push` para as branches principais dispara automaticamente o workflow de CI no GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), validando o frontend no Ubuntu e o backend no Windows.
 
 ## Estrutura do projeto
 
