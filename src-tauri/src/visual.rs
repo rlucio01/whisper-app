@@ -16,9 +16,16 @@
 //! foco (`focus: false` no tauri.conf.json), pra não interferir no app onde
 //! o texto vai ser colado depois.
 
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, Runtime};
 
 use crate::config::{OverlayConfig, OverlayPosition, SharedConfig, VisualIndicator};
+
+/// Flag para indicar se o overlay está ativo/visível no momento.
+static OVERLAY_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Epoch para garantir que apenas a thread de reforço mais recente fique ativa.
+static WATCHER_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 /// Label da janela flutuante (definido em `tauri.conf.json`).
 const OVERLAY_LABEL: &str = "overlay";
@@ -91,23 +98,187 @@ fn current_overlay_config<R: Runtime>(app: &AppHandle<R>) -> OverlayConfig {
 
 // ---------- Overlay window ----------
 
+/// Inicializa os atributos nativos de sobreposição do overlay (chamado no boot em `lib.rs`).
+/// No Windows, garante desde a inicialização os estilos estendidos `WS_EX_TOPMOST`,
+/// `WS_EX_TOOLWINDOW` e `WS_EX_NOACTIVATE`, além de registrar `always_on_top`.
+pub fn init_overlay<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::Foundation::HWND;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongW, IsWindow, SetWindowLongW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
+            WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+        };
+
+        if let Ok(raw_hwnd) = window.hwnd() {
+            let hwnd = raw_hwnd.0 as HWND;
+            if !hwnd.is_null() && unsafe { IsWindow(hwnd) } != 0 {
+                let ex_style = unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) };
+                let needed = (WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as i32;
+                if (ex_style & needed) != needed {
+                    unsafe {
+                        SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | needed);
+                    }
+                }
+            }
+        }
+    }
+    let _ = window.set_always_on_top(true);
+}
+
+#[cfg(target_os = "windows")]
+fn force_topmost_windows<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    coords: Option<(i32, i32, i32, i32)>,
+) {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, GetForegroundWindow, GetWindowLongW, GetWindowThreadProcessId,
+        IsWindow, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    };
+
+    let Ok(raw_hwnd) = window.hwnd() else { return };
+    let hwnd = raw_hwnd.0 as HWND;
+    if hwnd.is_null() || unsafe { IsWindow(hwnd) } == 0 {
+        return;
+    }
+
+    unsafe {
+        // 1. Garante que os estilos estendidos de overlay incluam TOPMOST, TOOLWINDOW e NOACTIVATE.
+        // WS_EX_TOPMOST: sempre no topo do Z-order do Windows.
+        // WS_EX_TOOLWINDOW: janela de utilitário (não polui Alt+Tab nem barra de tarefas).
+        // WS_EX_NOACTIVATE: não rouba o foco do app onde o usuário está digitando.
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        let needed = (WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as i32;
+        if (ex_style & needed) != needed {
+            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | needed);
+        }
+
+        // 2. Anexa temporariamente o input thread ao app em foreground para contornar
+        // restrições de segurança do Windows contra manipulação de Z-order em background.
+        let foreground = GetForegroundWindow();
+        let fg_tid = if !foreground.is_null() {
+            GetWindowThreadProcessId(foreground, std::ptr::null_mut())
+        } else {
+            0
+        };
+        let our_tid = GetCurrentThreadId();
+        let attached = fg_tid != 0 && fg_tid != our_tid && AttachThreadInput(our_tid, fg_tid, 1) != 0;
+
+        // 3. Reset rápido de Z-order (NOTOPMOST -> TOPMOST) para forçar o compositor DWM
+        // a re-avaliar o Z-order mesmo que a janela já estivesse marcada internamente como topmost.
+        SetWindowPos(
+            hwnd,
+            HWND_NOTOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+
+        // 4. Posiciona e define HWND_TOPMOST com SWP_SHOWWINDOW
+        if let Some((x, y, w, h)) = coords {
+            SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                x,
+                y,
+                w,
+                h,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        } else {
+            SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+
+        BringWindowToTop(hwnd);
+
+        if attached {
+            AttachThreadInput(our_tid, fg_tid, 0);
+        }
+    }
+}
+
+/// Dispara thread de reforço contínuo enquanto o overlay estiver ativo,
+/// garantindo que cliques em janelas de outros apps não joguem a barra para trás.
+#[cfg(target_os = "windows")]
+fn start_topmost_watcher<R: Runtime>(window: tauri::WebviewWindow<R>) {
+    let epoch = WATCHER_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
+    std::thread::spawn(move || {
+        use windows_sys::Win32::Foundation::HWND;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            BringWindowToTop, IsWindow, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
+            SWP_NOSIZE,
+        };
+
+        let Ok(raw_hwnd) = window.hwnd() else { return };
+        let hwnd = raw_hwnd.0 as HWND;
+
+        while OVERLAY_ACTIVE.load(Ordering::Relaxed) && WATCHER_EPOCH.load(Ordering::Relaxed) == epoch {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            if !OVERLAY_ACTIVE.load(Ordering::Relaxed) || WATCHER_EPOCH.load(Ordering::Relaxed) != epoch {
+                break;
+            }
+            if hwnd.is_null() || unsafe { IsWindow(hwnd) } == 0 {
+                break;
+            }
+            unsafe {
+                SetWindowPos(
+                    hwnd,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+                BringWindowToTop(hwnd);
+            }
+        }
+    });
+}
+
 fn show_overlay<R: Runtime>(app: &AppHandle<R>) {
     let Some(window) = app.get_webview_window(OVERLAY_LABEL) else {
         return;
     };
     let cfg = current_overlay_config(app);
     apply_scale(&window, cfg.scale);
-    position_overlay(&window, cfg.position, cfg.scale);
-    // Reafirma a prioridade nativa toda vez que a barra reaparece.
-    let _ = window.set_always_on_top(true);
-    let _ = window.show();
-    // Reafirma a posição logo após o show, garantindo que o compositor do Windows
-    // aplique as coordenadas corretas mesmo no primeiro show da sessão.
-    position_overlay(&window, cfg.position, cfg.scale);
-    let _ = window.set_always_on_top(true);
+
+    #[cfg(target_os = "windows")]
+    {
+        OVERLAY_ACTIVE.store(true, Ordering::SeqCst);
+        let coords = calculate_overlay_geometry(&window, cfg.position, cfg.scale);
+        force_topmost_windows(&window, coords);
+        let _ = window.show();
+        let _ = window.set_always_on_top(true);
+        start_topmost_watcher(window);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        position_overlay(&window, cfg.position, cfg.scale);
+        let _ = window.set_always_on_top(true);
+        let _ = window.show();
+        position_overlay(&window, cfg.position, cfg.scale);
+        let _ = window.set_always_on_top(true);
+    }
 }
 
 fn hide_overlay<R: Runtime>(app: &AppHandle<R>) {
+    OVERLAY_ACTIVE.store(false, Ordering::SeqCst);
     if let Some(window) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = window.hide();
     }
@@ -187,23 +358,20 @@ fn resolve_target_monitor<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Optio
     window.available_monitors().ok().and_then(|m| m.into_iter().next())
 }
 
-/// Reposiciona o overlay no centro-horizontal, perto do topo ou do fundo
-/// (conforme `overlay.position`) da tela em que a janela está.
-fn position_overlay<R: Runtime>(
+/// Calcula a geometria física (x, y, largura, altura) para posicionar o overlay
+/// no centro-horizontal, perto do topo ou do fundo (conforme `overlay.position`)
+/// na tela onde o usuário está interagindo.
+fn calculate_overlay_geometry<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     position: OverlayPosition,
     scale: f32,
-) {
-    let Some(monitor) = resolve_target_monitor(window) else {
-        return;
-    };
+) -> Option<(i32, i32, i32, i32)> {
+    let monitor = resolve_target_monitor(window)?;
     let mon_size = monitor.size();
     let mon_pos = monitor.position();
     let scale_factor = monitor.scale_factor();
 
     // Dimensão física calculada deterministicamente a partir da escala e DPI da tela.
-    // Isso evita usar `outer_size()` quando a janela está oculta (onde pode retornar 0x0
-    // no Windows, quebrando o cálculo de centralização em telas de notebooks).
     let scale = (scale as f64).clamp(MIN_SCALE as f64, MAX_SCALE as f64);
     let target_phys_w = (BASE_WIDTH * scale * scale_factor).round() as i32;
     let target_phys_h = (BASE_HEIGHT * scale * scale_factor).round() as i32;
@@ -230,7 +398,20 @@ fn position_overlay<R: Runtime>(
     let x = center_x.clamp(mon_pos.x, max_x);
     let y = center_y.clamp(mon_pos.y, max_y);
 
-    let _ = window.set_position(PhysicalPosition { x, y });
+    Some((x, y, win_w, win_h))
+}
+
+/// Reposiciona o overlay no centro-horizontal, perto do topo ou do fundo
+/// (conforme `overlay.position`) da tela em que a janela está.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
+fn position_overlay<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    position: OverlayPosition,
+    scale: f32,
+) {
+    if let Some((x, y, _, _)) = calculate_overlay_geometry(window, position, scale) {
+        let _ = window.set_position(PhysicalPosition { x, y });
+    }
 }
 
 // ---------- Tray icon ----------

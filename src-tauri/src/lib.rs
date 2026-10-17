@@ -175,6 +175,10 @@ pub fn run() {
             build_tray(app)?;
             hotkey::register(app.handle())?;
 
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                visual::init_overlay(&overlay);
+            }
+
             // A janela principal nasce escondida (`"visible": false` no
             // tauri.conf.json) para não piscar antes de sabermos se o
             // usuário quer o boot direto na bandeja. Mostramos aqui, a
