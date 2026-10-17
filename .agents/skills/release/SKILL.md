@@ -118,7 +118,33 @@ Quando o workflow terminar:
 
 ---
 
-## 6. (Opcional) Publicação no WinGet
+## 6. Padrão Oficial de Nomenclatura e Release Notes (Anti-Cabeçalho Duplo)
+
+Para manter o histórico e a página de Releases limpa, profissional e uniforme, siga obrigatoriamente este padrão:
+
+### 1. Título da Release (Release Title)
+- **Formato obrigatório**: `whisper_app v<versão> - <Título Descritivo>`
+- **Exemplo correto**: `whisper_app v1.1.0 - Assistente de Primeiro Acesso e Tutorial de IA`
+- **Incorreto**: `v1.1.0` (sem o nome do app e sem descrição) ou apenas a tag crua.
+
+### 2. Corpo do Release (Release Notes) — REGRA CRÍTICA ANTI-CABEÇALHO DUPLO
+- **ATENÇÃO**: O GitHub já renderiza o **Título da Release** como um cabeçalho `<h1>` automático no topo da página.
+- **PROIBIDO**: **NUNCA** inicie o texto do corpo das notas com `# whisper_app...` ou `# v...`, pois isso gera um **cabeçalho duplo** (o título renderiza repetido em sequência no topo).
+- **Estrutura correta do corpo**:
+  1. Parágrafo introdutório direto em texto comum (sem `#`).
+  2. Linha divisória (`---`).
+  3. Seção com `### O que há de novo na vX.Y.Z:`.
+  4. Lista estruturada de itens (`- **Recurso**: descrição...`).
+
+### 3. Como Criar ou Atualizar o Título e as Notas via GitHub CLI (`gh`)
+Após o término do workflow do GitHub Actions (ou na criação):
+```powershell
+gh release edit vX.Y.Z --title "whisper_app vX.Y.Z - <Título Amigável>" --notes-file release_notes.md
+```
+
+---
+
+## 7. (Opcional) Publicação no WinGet
 
 Após a release ser gerada no GitHub:
 ```powershell
