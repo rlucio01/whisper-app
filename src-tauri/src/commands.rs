@@ -357,7 +357,7 @@ pub async fn pick_audio_file() -> Result<Option<String>, String> {
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
-            let ps_script = r#"[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $dlg = New-Object System.Windows.Forms.OpenFileDialog; $dlg.Filter = 'Arquivos de Audio (*.mp3;*.ogg;*.wav;*.flac;*.m4a;*.aac;*.wma)|*.mp3;*.ogg;*.wav;*.flac;*.m4a;*.aac;*.wma|Todos os Arquivos (*.*)|*.*'; $dlg.Title = 'Selecionar Arquivo de Audio'; if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dlg.FileName }"#;
+            let ps_script = r#"[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $dlg = New-Object System.Windows.Forms.OpenFileDialog; $dlg.Filter = 'Arquivos de Audio (*.mp3;*.ogg;*.opus;*.wav;*.flac;*.m4a;*.aac;*.wma)|*.mp3;*.ogg;*.opus;*.wav;*.flac;*.m4a;*.aac;*.wma|Todos os Arquivos (*.*)|*.*'; $dlg.Title = 'Selecionar Arquivo de Audio'; if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dlg.FileName }"#;
             let output = std::process::Command::new("powershell")
                 .args(["-NoProfile", "-NonInteractive", "-Command", ps_script])
                 .creation_flags(0x08000000)
@@ -373,7 +373,7 @@ pub async fn pick_audio_file() -> Result<Option<String>, String> {
         }
         #[cfg(target_os = "macos")]
         {
-            let script = r#"POSIX path of (choose file of type {"public.audio", "mp3", "wav", "m4a", "ogg", "flac", "aac", "wma"} with prompt "Selecionar Arquivo de Audio")"#;
+            let script = r#"POSIX path of (choose file of type {"public.audio", "mp3", "wav", "m4a", "ogg", "opus", "flac", "aac", "wma"} with prompt "Selecionar Arquivo de Audio")"#;
             let output = std::process::Command::new("osascript")
                 .args(["-e", script])
                 .output()
@@ -389,7 +389,7 @@ pub async fn pick_audio_file() -> Result<Option<String>, String> {
         #[cfg(target_os = "linux")]
         {
             let zenity_res = std::process::Command::new("zenity")
-                .args(["--file-selection", "--title=Selecionar Arquivo de Audio", "--file-filter=Audio | *.mp3 *.ogg *.wav *.flac *.m4a *.aac *.wma"])
+                .args(["--file-selection", "--title=Selecionar Arquivo de Audio", "--file-filter=Audio | *.mp3 *.ogg *.opus *.wav *.flac *.m4a *.aac *.wma"])
                 .output();
             if let Ok(output) = zenity_res {
                 if output.status.success() {
@@ -401,7 +401,7 @@ pub async fn pick_audio_file() -> Result<Option<String>, String> {
             }
 
             let kdialog_res = std::process::Command::new("kdialog")
-                .args(["--getopenfilename", ".", "*.mp3 *.ogg *.wav *.flac *.m4a *.aac *.wma"])
+                .args(["--getopenfilename", ".", "*.mp3 *.ogg *.opus *.wav *.flac *.m4a *.aac *.wma"])
                 .output();
             if let Ok(output) = kdialog_res {
                 if output.status.success() {

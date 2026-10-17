@@ -1,21 +1,35 @@
-//! Decodificador universal de arquivos de áudio (MP3, OGG, WAV, FLAC, M4A/AAC).
+//! Decodificador universal de arquivos de áudio (MP3, OGG/Opus/Vorbis, WAV, FLAC, M4A/AAC).
 //!
-//! Utiliza `symphonia` para decodificação pura em Rust, downmixa para mono
-//! e resampleia linearmente para 16 kHz (padrão exigido pelo Whisper).
+//! Utiliza `symphonia` com suporte a `libopus` (mensagens de voz do WhatsApp)
+//! para decodificação em Rust, downmixa para mono e resampleia linearmente
+//! para 16 kHz (padrão exigido pelo Whisper).
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::codecs::{CodecRegistry, DecoderOptions};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
+use symphonia_adapter_libopus::OpusDecoder;
 
 pub const WHISPER_SAMPLE_RATE: u32 = 16_000;
+
+static CODEC_REGISTRY: OnceLock<CodecRegistry> = OnceLock::new();
+
+fn get_codec_registry() -> &'static CodecRegistry {
+    CODEC_REGISTRY.get_or_init(|| {
+        let mut registry = CodecRegistry::new();
+        symphonia::default::register_enabled_codecs(&mut registry);
+        registry.register_all::<OpusDecoder>();
+        registry
+    })
+}
 
 pub struct DecodedAudio {
     pub samples: Vec<f32>,
@@ -56,18 +70,18 @@ pub fn decode_audio_file(path: &Path) -> Result<DecodedAudio> {
         .ok_or_else(|| anyhow!("Nenhuma faixa de áudio encontrada no arquivo {}", path.display()))?;
 
     let track_id = track.id;
-    let sample_rate = track
+    let mut sample_rate = track
         .codec_params
         .sample_rate
-        .ok_or_else(|| anyhow!("Taxa de amostragem desconhecida no arquivo de áudio"))?;
-    let channels = track
+        .unwrap_or(48_000); // 48 kHz padrão no caso do Opus/contêiner sem taxa explícita
+    let mut channels = track
         .codec_params
         .channels
         .map(|c| c.count() as u16)
         .unwrap_or(1);
 
     let dec_opts = DecoderOptions::default();
-    let mut decoder = symphonia::default::get_codecs()
+    let mut decoder = get_codec_registry()
         .make(&track.codec_params, &dec_opts)
         .with_context(|| "Codec de áudio não suportado ou inválido")?;
 
@@ -81,10 +95,16 @@ pub fn decode_audio_file(path: &Path) -> Result<DecodedAudio> {
 
         match decoder.decode(&packet) {
             Ok(decoded) => {
-                if sample_buf.is_none() {
-                    let spec = *decoded.spec();
-                    let duration = decoded.capacity() as u64;
-                    sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
+                let spec = *decoded.spec();
+                sample_rate = spec.rate;
+                channels = spec.channels.count() as u16;
+
+                let needed_capacity = decoded.capacity() as u64;
+                if sample_buf
+                    .as_ref()
+                    .map_or(true, |sb| (sb.capacity() as u64) < needed_capacity)
+                {
+                    sample_buf = Some(SampleBuffer::<f32>::new(needed_capacity, spec));
                 }
 
                 if let Some(sb) = sample_buf.as_mut() {
@@ -151,4 +171,29 @@ pub fn decode_audio_file(path: &Path) -> Result<DecodedAudio> {
         duration_sec,
         wav_16k_path,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use symphonia::core::codecs::CODEC_TYPE_OPUS;
+
+    #[test]
+    fn test_codec_registry_has_opus() {
+        let registry = get_codec_registry();
+        let dec_opts = DecoderOptions::default();
+        let mut params = symphonia::core::codecs::CodecParameters::new();
+        params.for_codec(CODEC_TYPE_OPUS);
+        params.with_channels(symphonia::core::audio::Channels::FRONT_LEFT);
+        let res = registry.make(&params, &dec_opts);
+        match res {
+            Ok(_) => (),
+            Err(symphonia::core::errors::Error::Unsupported(err)) => {
+                if err.contains("unsupported codec") {
+                    panic!("Opus decoder deve estar registrado no CodecRegistry, mas o codec não foi suportado: {}", err);
+                }
+            }
+            Err(_) => (),
+        }
+    }
 }

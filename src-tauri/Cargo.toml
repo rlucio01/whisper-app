@@ -1,6 +1,6 @@
 [package]
 name = "whisper_app"
-version = "1.0.0"
+version = "1.0.1"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -59,6 +59,8 @@ enigo = "0.6"
 arboard = "3"
 # Decodificação de arquivos de áudio (MP3, OGG, WAV, FLAC, M4A/AAC).
 symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "vorbis", "wav", "flac", "aac", "isomp4", "ogg"] }
+# Suporte ao codec Opus (usado em mensagens de voz do WhatsApp: OGG/Opus e .opus).
+symphonia-adapter-libopus = "0.2"
 
 
 # APIs Win32 (foreground window, process name) — usadas em `active_app.rs`

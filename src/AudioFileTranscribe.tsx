@@ -124,7 +124,7 @@ export default function AudioFileTranscribe({
       <div className="settings-card" style={{ marginTop: "1rem" }}>
         <h3 className="card-title">Selecionar Arquivo</h3>
         <p className="field-hint" style={{ marginTop: "0.25rem", marginBottom: "1rem" }}>
-          Transcreva gravações existentes nos formatos <strong>OGG, WAV, MP3, M4A, FLAC, AAC</strong> com segmentação temporal e alta fidelidade.
+          Transcreva gravações existentes nos formatos <strong>OGG, OPUS (WhatsApp), WAV, MP3, M4A, FLAC, AAC</strong> com segmentação temporal e alta fidelidade.
         </p>
 
         <div className="file-selection-box">
