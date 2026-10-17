@@ -102,6 +102,13 @@ jobs:
         run: |
           npm run tauri build
 
+      # Gera o manifesto latest.json consumido pelo auto-updater
+      - name: Gerar manifesto do auto-updater (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\scripts\make-latest-json.ps1 -Notes "Versao ${{ github.ref_name }} do Whisper App."
+
       # Upload dos artefatos diretamente para a Release no GitHub
       - name: Publicar artefatos no GitHub Release
         uses: softprops/action-gh-release@v2
