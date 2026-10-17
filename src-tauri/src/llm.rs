@@ -995,6 +995,160 @@ fn format_llm_error(provider: &str, status: reqwest::StatusCode, body: &str) -> 
     }
 }
 
+/// Testa a conectividade e a validade de uma chave de API para o provedor selecionado.
+pub fn test_api_key_connection(provider: &str, api_key: &str) -> Result<String> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err(anyhow!("A chave de API não pode estar vazia."));
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .context("Falha ao inicializar o cliente HTTP.")?;
+
+    match provider.to_lowercase().as_str() {
+        "groq" => {
+            let body = serde_json::json!({
+                "model": "openai/gpt-oss-20b",
+                "max_tokens": 5,
+                "messages": [{"role": "user", "content": "ping"}]
+            });
+            let resp = client
+                .post(GROQ_ENDPOINT)
+                .bearer_auth(key)
+                .json(&body)
+                .send()
+                .context("Falha ao comunicar com os servidores do Groq. Verifique sua conexão à internet.")?;
+
+            let status = resp.status();
+            if status.is_success() {
+                Ok("Conexão com o Groq estabelecida com sucesso! IA gratuita pronta para uso.".to_string())
+            } else if status.as_u16() == 401 {
+                Err(anyhow!("Chave inválida. Verifique se copiou a chave completa começando com 'gsk_'."))
+            } else if status.as_u16() == 429 {
+                Err(anyhow!("Chave válida, mas o limite temporário de requisições foi atingido. Aguarde alguns instantes."))
+            } else {
+                let err_text = resp.text().unwrap_or_default();
+                Err(anyhow!("Erro ao validar chave com o Groq (HTTP {}): {}", status, err_text))
+            }
+        }
+        "openai" => {
+            let body = serde_json::json!({
+                "model": "gpt-4o-mini",
+                "max_tokens": 5,
+                "messages": [{"role": "user", "content": "ping"}]
+            });
+            let resp = client
+                .post(OPENAI_ENDPOINT)
+                .bearer_auth(key)
+                .json(&body)
+                .send()
+                .context("Falha ao comunicar com os servidores da OpenAI. Verifique sua conexão à internet.")?;
+
+            let status = resp.status();
+            if status.is_success() {
+                Ok("Conexão com a OpenAI estabelecida com sucesso! IA pronta para uso.".to_string())
+            } else if status.as_u16() == 401 {
+                Err(anyhow!("Chave inválida. Verifique se copiou a chave completa começando com 'sk-'."))
+            } else if status.as_u16() == 429 {
+                Err(anyhow!("Chave reconhecida, mas os créditos da sua conta OpenAI acabaram ou o limite de requisições foi atingido."))
+            } else {
+                let err_text = resp.text().unwrap_or_default();
+                Err(anyhow!("Erro ao validar chave com a OpenAI (HTTP {}): {}", status, err_text))
+            }
+        }
+        "gemini" => {
+            let url = format!(
+                "{}/gemini-2.0-flash:generateContent?key={}",
+                GEMINI_ENDPOINT_BASE, key
+            );
+            let body = serde_json::json!({
+                "contents": [{"parts": [{"text": "ping"}]}]
+            });
+            let resp = client
+                .post(&url)
+                .json(&body)
+                .send()
+                .context("Falha ao comunicar com a API do Google Gemini.")?;
+
+            let status = resp.status();
+            if status.is_success() {
+                Ok("Conexão com o Google Gemini estabelecida com sucesso!".to_string())
+            } else {
+                Err(anyhow!("Chave do Google Gemini inválida ou sem permissão de acesso."))
+            }
+        }
+        "anthropic" => {
+            let body = serde_json::json!({
+                "model": "claude-3-5-haiku-20241022",
+                "max_tokens": 5,
+                "messages": [{"role": "user", "content": "ping"}]
+            });
+            let resp = client
+                .post(ANTHROPIC_ENDPOINT)
+                .header("x-api-key", key)
+                .header("anthropic-version", ANTHROPIC_API_VERSION)
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .context("Falha ao comunicar com os servidores da Anthropic.")?;
+
+            let status = resp.status();
+            if status.is_success() {
+                Ok("Conexão com a Anthropic estabelecida com sucesso!".to_string())
+            } else {
+                Err(anyhow!("Chave da Anthropic inválida ou sem permissão."))
+            }
+        }
+        "openrouter" => {
+            let body = serde_json::json!({
+                "model": "openai/gpt-4o-mini",
+                "max_tokens": 5,
+                "messages": [{"role": "user", "content": "ping"}]
+            });
+            let resp = client
+                .post(OPENROUTER_ENDPOINT)
+                .bearer_auth(key)
+                .header("content-type", "application/json")
+                .header("HTTP-Referer", OPENROUTER_APP_URL)
+                .header("X-Title", OPENROUTER_APP_TITLE)
+                .json(&body)
+                .send()
+                .context("Falha ao comunicar com o OpenRouter.")?;
+
+            let status = resp.status();
+            if status.is_success() {
+                Ok("Conexão com o OpenRouter estabelecida com sucesso!".to_string())
+            } else {
+                Err(anyhow!("Chave do OpenRouter inválida ou sem saldo disponível."))
+            }
+        }
+        "xai" => {
+            let body = serde_json::json!({
+                "model": "grok-3-mini",
+                "max_tokens": 5,
+                "messages": [{"role": "user", "content": "ping"}]
+            });
+            let resp = client
+                .post(XAI_ENDPOINT)
+                .bearer_auth(key)
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .context("Falha ao comunicar com a xAI (Grok).")?;
+
+            let status = resp.status();
+            if status.is_success() {
+                Ok("Conexão com a xAI (Grok) estabelecida com sucesso!".to_string())
+            } else {
+                Err(anyhow!("Chave da xAI inválida ou sem permissão."))
+            }
+        }
+        _ => Err(anyhow!("Provedor não suportado para teste automatizado.")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

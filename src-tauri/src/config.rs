@@ -416,6 +416,10 @@ pub struct AppConfig {
     /// para restaurar exatamente a preferência do usuário quando a tradução for desativada.
     #[serde(default)]
     pub previous_skip_llm_formatting: Option<bool>,
+
+    /// Indica se o tutorial/onboarding de primeiro acesso já foi concluído ou dispensado.
+    #[serde(default)]
+    pub onboarding_completed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -515,6 +519,7 @@ impl Default for AppConfig {
             http_proxy: String::new(),
             danger_accept_invalid_certs: false,
             previous_skip_llm_formatting: None,
+            onboarding_completed: false,
         }
     }
 }

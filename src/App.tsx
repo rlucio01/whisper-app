@@ -13,6 +13,7 @@ import {
 } from "./hotkeyFormat";
 import { playBeep, type SoundKind } from "./sound";
 import { useUpdater } from "./useUpdater";
+import OnboardingModal from "./OnboardingModal";
 import "./App.css";
 
 type Status =
@@ -43,6 +44,9 @@ function App() {
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [testText, setTestText] = useState("");
   const [testCopyMsg, setTestCopyMsg] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [hasNoAiKey, setHasNoAiKey] = useState(false);
+  const [dismissedPromo, setDismissedPromo] = useState(false);
   const isPttActiveLocalRef = useRef(false);
   const heldModsRef = useRef(new Set<string>());
   const statusRef = useRef(status);
@@ -67,6 +71,13 @@ function App() {
       translate_toggle_hotkey?: string;
       hands_free_hotkey?: string;
       translate?: { enabled: boolean; target_language: string };
+      onboarding_completed?: boolean;
+      openai_api_key?: string;
+      groq_api_key?: string;
+      anthropic_api_key?: string;
+      gemini_api_key?: string;
+      openrouter_api_key?: string;
+      xai_api_key?: string;
     }>("get_config")
       .then((cfg) => {
         setHotkey(cfg.hotkey.trim() || DEFAULT_HOTKEY);
@@ -77,6 +88,21 @@ function App() {
         );
         if (cfg.translate) {
           setTranslateEnabled(cfg.translate.enabled);
+        }
+
+        const hasAnyKey = Boolean(
+          cfg.groq_api_key?.trim() ||
+          cfg.openai_api_key?.trim() ||
+          cfg.anthropic_api_key?.trim() ||
+          cfg.gemini_api_key?.trim() ||
+          cfg.openrouter_api_key?.trim() ||
+          cfg.xai_api_key?.trim()
+        );
+        setHasNoAiKey(!hasAnyKey);
+
+        // Se for primeiro acesso sem chave configurada nem onboarding concluído, abre o tutorial automaticamente
+        if (!cfg.onboarding_completed && !hasAnyKey) {
+          setShowOnboarding(true);
         }
       })
       .catch(() => {});
@@ -377,6 +403,18 @@ function App() {
           </button>
           <button
             className="icon-btn"
+            onClick={() => setShowOnboarding(true)}
+            title="Primeiros Passos / Tutorial de Configuração"
+            aria-label="Primeiros Passos"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </button>
+          <button
+            className="icon-btn"
             onClick={() => {
               setSettingsTab("audio");
               setView("settings");
@@ -443,6 +481,42 @@ function App() {
         <div className="status-dot" />
         <span>{statusLabel[status]}</span>
       </section>
+
+      {hasNoAiKey && !dismissedPromo && !showOnboarding && (
+        <section className="onboarding-promo-banner" style={{ margin: "0.5rem 0" }}>
+          <div className="promo-banner-text">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <path d="M12 2a10 10 0 1 0 10 10H12V2Z" />
+              <path d="M12 12L2.05 12" />
+            </svg>
+            <span>
+              <strong>Dica:</strong> Ative a pontuação automática com IA usando o plano <strong>100% gratuito do Groq</strong>.
+            </span>
+          </div>
+          <div className="promo-banner-actions">
+            <button
+              type="button"
+              className="btn-primary btn-small"
+              onClick={() => setShowOnboarding(true)}
+            >
+              Configurar em 1 minuto
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setDismissedPromo(true)}
+              title="Dispensar aviso"
+              aria-label="Dispensar"
+              style={{ padding: "0.25rem" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </section>
+      )}
 
       {formattedText && (
         <section className="transcript">
@@ -571,6 +645,19 @@ function App() {
           Pressione <kbd>{displayHotkey(translateToggleHotkey || "F10")}</kbd> para ligar/desligar a tradução para inglês. Fechar esta janela minimiza o app para a bandeja do sistema.
         </p>
       </section>
+
+      {showOnboarding && (
+        <OnboardingModal
+          isOpen={showOnboarding}
+          onClose={() => setShowOnboarding(false)}
+          onComplete={() => {
+            setShowOnboarding(false);
+            setDismissedPromo(true);
+            setHasNoAiKey(false);
+          }}
+          currentHotkey={hotkey}
+        />
+      )}
     </main>
   );
 }

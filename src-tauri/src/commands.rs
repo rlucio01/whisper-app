@@ -497,4 +497,15 @@ pub fn set_meeting_action_done<R: Runtime>(
     crate::meeting::set_action_item_done(&app, &meeting_id, action_idx, done).map_err(|e| format!("{:#}", e))
 }
 
+/// Testa a conectividade e validade de uma chave de API para o provedor selecionado.
+#[tauri::command]
+pub async fn test_api_key(provider: String, api_key: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::llm::test_api_key_connection(&provider, &api_key)
+    })
+    .await
+    .map_err(|e| format!("Tarefa de teste cancelada: {e}"))?
+    .map_err(|e| format!("{:#}", e))
+}
+
 

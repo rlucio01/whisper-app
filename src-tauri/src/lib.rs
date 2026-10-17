@@ -242,6 +242,7 @@ pub fn run() {
             commands::get_meetings,
             commands::delete_meeting,
             commands::set_meeting_action_done,
+            commands::test_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o app Tauri");

@@ -11,6 +11,7 @@ import {
 } from "./hotkeyFormat";
 import { playBeep } from "./sound";
 import type { useUpdater } from "./useUpdater";
+import OnboardingModal from "./OnboardingModal";
 
 // Tipo espelhando `AppConfig` no Rust (config.rs).
 type Provider =
@@ -136,6 +137,7 @@ interface AppConfig {
   http_proxy?: string;
   danger_accept_invalid_certs?: boolean;
   previous_skip_llm_formatting?: boolean | null;
+  onboarding_completed?: boolean;
 }
 
 export interface WordReplacement {
@@ -326,6 +328,31 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
   const [newWord, setNewWord] = useState("");
   const [newReplaceFrom, setNewReplaceFrom] = useState("");
   const [newReplaceTo, setNewReplaceTo] = useState("");
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [isTestingKey, setIsTestingKey] = useState(false);
+  const [keyTestResult, setKeyTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  async function handleTestActiveKey() {
+    if (!config) return;
+    const key = getApiKey(config, config.provider).trim();
+    if (!key) {
+      setKeyTestResult({ success: false, message: "Digite ou cole uma chave antes de testar." });
+      return;
+    }
+    setIsTestingKey(true);
+    setKeyTestResult(null);
+    try {
+      const msg = await invoke<string>("test_api_key", {
+        provider: config.provider,
+        apiKey: key,
+      });
+      setKeyTestResult({ success: true, message: msg });
+    } catch (err) {
+      setKeyTestResult({ success: false, message: String(err) });
+    } finally {
+      setIsTestingKey(false);
+    }
+  }
 
   // Auto-save de configurações
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -1271,6 +1298,26 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
 
       {activeTab === "llm" && (
         <div className="settings-tab-content">
+          <div className="onboarding-promo-banner" style={{ marginBottom: "1.25rem" }}>
+            <div className="promo-banner-text">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10" />
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <span>
+                Não sabe como criar sua chave gratuita? Veja o tutorial passo a passo em 3 etapas.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn-primary btn-small"
+              onClick={() => setShowTutorial(true)}
+            >
+              Abrir Tutorial
+            </button>
+          </div>
+
           <div className="settings-card">
             <h3 className="card-title">Pós-processamento com IA</h3>
             <section className="field">
@@ -1285,6 +1332,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   const newProvider = e.target.value as Provider;
                   setConfig({ ...config, provider: newProvider, llm_model: "" });
                   setCustomModelMode(false);
+                  setKeyTestResult(null);
                 }}
               >
                 {(Object.keys(PROVIDER_LABELS) as Provider[]).map((p) => (
@@ -1299,16 +1347,48 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
               <label className="field-label" htmlFor="apikey">
                 Chave da API ({providerLabel})
               </label>
-              <input
-                id="apikey"
-                type="password"
-                className="text-input"
-                placeholder={API_KEY_PLACEHOLDER[config.provider]}
-                value={getApiKey(config, config.provider)}
-                onChange={(e) =>
-                  setConfig(setApiKey(config, config.provider, e.target.value))
-                }
-              />
+              <div className="file-path-row">
+                <input
+                  id="apikey"
+                  type="password"
+                  className="text-input"
+                  placeholder={API_KEY_PLACEHOLDER[config.provider]}
+                  value={getApiKey(config, config.provider)}
+                  onChange={(e) => {
+                    setConfig(setApiKey(config, config.provider, e.target.value));
+                    setKeyTestResult(null);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleTestActiveKey}
+                  disabled={isTestingKey || !getApiKey(config, config.provider).trim()}
+                >
+                  {isTestingKey ? "Testando…" : "Testar Chave"}
+                </button>
+              </div>
+              {keyTestResult && (
+                <div
+                  className={`wizard-test-badge ${
+                    keyTestResult.success ? "success" : "error"
+                  }`}
+                  style={{ marginTop: "0.5rem" }}
+                >
+                  {keyTestResult.success ? (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="8" x2="12" y2="12" />
+                      <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                  )}
+                  <span>{keyTestResult.message}</span>
+                </div>
+              )}
               <p className="field-hint">
                 Deixe em branco para desativar (o app cola só a transcrição bruta).
                 Pegue sua chave em{" "}
@@ -2131,6 +2211,18 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
           Todas as alterações são salvas automaticamente.
         </span>
       </footer>
+
+      {showTutorial && config && (
+        <OnboardingModal
+          isOpen={showTutorial}
+          onClose={() => setShowTutorial(false)}
+          onComplete={() => {
+            setShowTutorial(false);
+            invoke<AppConfig>("get_config").then(setConfig).catch(console.error);
+          }}
+          currentHotkey={config.hotkey}
+        />
+      )}
     </div>
   );
 }
