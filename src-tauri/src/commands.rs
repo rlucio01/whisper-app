@@ -350,30 +350,44 @@ pub fn toggle_translation<R: Runtime>(app: AppHandle<R>) {
     crate::toggle_translation(&app);
 }
 
-/// Abre uma caixa de diálogo nativa do Windows para seleção de arquivo de áudio.
+/// Abre uma caixa de diálogo nativa do Windows para seleção de arquivo de áudio ou vídeo.
 #[tauri::command]
 pub async fn pick_audio_file() -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
-            let ps_script = r#"[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $dlg = New-Object System.Windows.Forms.OpenFileDialog; $dlg.Filter = 'Arquivos de Audio (*.mp3;*.ogg;*.opus;*.wav;*.flac;*.m4a;*.aac;*.wma)|*.mp3;*.ogg;*.opus;*.wav;*.flac;*.m4a;*.aac;*.wma|Todos os Arquivos (*.*)|*.*'; $dlg.Title = 'Selecionar Arquivo de Audio'; if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dlg.FileName }"#;
+            // Usa codificação Hexadecimal para a saída do PowerShell para evitar corrupção
+            // de acentos (á, é, ã, ç), caracteres especiais e emojis (ex: 🛜) pelo code-page OEM do console
+            let ps_script = r#"[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $dlg = New-Object System.Windows.Forms.OpenFileDialog; $dlg.Filter = 'Todos os Arquivos de Midia (*.mp3;*.ogg;*.opus;*.wav;*.flac;*.m4a;*.aac;*.wma;*.mp4;*.mkv;*.webm;*.mov;*.avi;*.flv;*.m4v)|*.mp3;*.ogg;*.opus;*.wav;*.flac;*.m4a;*.aac;*.wma;*.mp4;*.mkv;*.webm;*.mov;*.avi;*.flv;*.m4v|Arquivos de Video (*.mp4;*.mkv;*.webm;*.mov;*.avi;*.flv;*.m4v)|*.mp4;*.mkv;*.webm;*.mov;*.avi;*.flv;*.m4v|Arquivos de Audio (*.mp3;*.ogg;*.opus;*.wav;*.flac;*.m4a;*.aac;*.wma)|*.mp3;*.ogg;*.opus;*.wav;*.flac;*.m4a;*.aac;*.wma|Todos os Arquivos (*.*)|*.*'; $dlg.Title = 'Selecionar Arquivo de Audio ou Video'; if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $bytes = [System.Text.Encoding]::UTF8.GetBytes($dlg.FileName); [Console]::Write(([BitConverter]::ToString($bytes) -replace '-')) }"#;
             let output = std::process::Command::new("powershell")
                 .args(["-NoProfile", "-NonInteractive", "-Command", ps_script])
                 .creation_flags(0x08000000)
                 .output()
                 .map_err(|e| format!("Falha ao invocar diálogo de arquivo: {e}"))?;
 
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if path_str.is_empty() {
+            let hex_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if hex_str.is_empty() {
                 Ok(None)
             } else {
+                let bytes: Vec<u8> = (0..hex_str.len())
+                    .step_by(2)
+                    .filter_map(|i| {
+                        if i + 2 <= hex_str.len() {
+                            u8::from_str_radix(&hex_str[i..i + 2], 16).ok()
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let path_str = String::from_utf8(bytes)
+                    .map_err(|e| format!("Codificação UTF-8 inválida no caminho: {e}"))?;
                 Ok(Some(path_str))
             }
         }
         #[cfg(target_os = "macos")]
         {
-            let script = r#"POSIX path of (choose file of type {"public.audio", "mp3", "wav", "m4a", "ogg", "opus", "flac", "aac", "wma"} with prompt "Selecionar Arquivo de Audio")"#;
+            let script = r#"POSIX path of (choose file of type {"public.audio", "public.movie", "mp3", "wav", "m4a", "ogg", "opus", "flac", "aac", "wma", "mp4", "mov", "mkv", "webm", "avi", "m4v"} with prompt "Selecionar Arquivo de Audio ou Video")"#;
             let output = std::process::Command::new("osascript")
                 .args(["-e", script])
                 .output()
@@ -389,7 +403,7 @@ pub async fn pick_audio_file() -> Result<Option<String>, String> {
         #[cfg(target_os = "linux")]
         {
             let zenity_res = std::process::Command::new("zenity")
-                .args(["--file-selection", "--title=Selecionar Arquivo de Audio", "--file-filter=Audio | *.mp3 *.ogg *.opus *.wav *.flac *.m4a *.aac *.wma"])
+                .args(["--file-selection", "--title=Selecionar Arquivo de Audio ou Video", "--file-filter=Midia | *.mp3 *.ogg *.opus *.wav *.flac *.m4a *.aac *.wma *.mp4 *.mkv *.webm *.mov *.avi *.flv *.m4v"])
                 .output();
             if let Ok(output) = zenity_res {
                 if output.status.success() {
@@ -401,7 +415,7 @@ pub async fn pick_audio_file() -> Result<Option<String>, String> {
             }
 
             let kdialog_res = std::process::Command::new("kdialog")
-                .args(["--getopenfilename", ".", "*.mp3 *.ogg *.opus *.wav *.flac *.m4a *.aac *.wma"])
+                .args(["--getopenfilename", ".", "*.mp3 *.ogg *.opus *.wav *.flac *.m4a *.aac *.wma *.mp4 *.mkv *.webm *.mov *.avi *.flv *.m4v"])
                 .output();
             if let Ok(output) = kdialog_res {
                 if output.status.success() {
@@ -423,7 +437,7 @@ pub async fn pick_audio_file() -> Result<Option<String>, String> {
     .map_err(|e| format!("Falha na tarefa de diálogo: {e}"))?
 }
 
-/// Transcreve um arquivo de áudio (MP3, OGG, WAV, FLAC, M4A, etc.) em thread de background.
+/// Transcreve um arquivo de áudio ou vídeo (MP3, OGG, WAV, FLAC, M4A, MP4, MKV, etc.) em thread de background.
 #[tauri::command]
 pub async fn transcribe_audio_file<R: Runtime>(
     app: AppHandle<R>,
@@ -436,6 +450,61 @@ pub async fn transcribe_audio_file<R: Runtime>(
     .await
     .map_err(|e| format!("tarefa assíncrona falhou: {:#}", e))?
     .map_err(|e| format!("{:#}", e))
+}
+
+/// Transcreve um vídeo ou áudio diretamente de um link da web (YouTube, TikTok, Instagram, etc.).
+#[tauri::command]
+pub async fn transcribe_media_url<R: Runtime>(
+    app: AppHandle<R>,
+    url: String,
+) -> Result<crate::transcription::TranscriptionFileResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let clean_url = url.trim();
+        if clean_url.is_empty() {
+            return Err("URL não informada".to_string());
+        }
+
+        // 1. Download do fluxo de áudio via yt-dlp
+        let downloaded_file = crate::media_download::download_audio_from_url(&app, clean_url)
+            .map_err(|e| format!("Falha ao extrair áudio da URL: {:#}", e))?;
+
+        // 2. Transcrição do arquivo de áudio extraído
+        let result = crate::transcription::transcribe_file_standalone(&app, &downloaded_file)
+            .map_err(|e| format!("{:#}", e));
+
+        // 3. Limpeza do arquivo e pasta temporária
+        if let Some(parent) = downloaded_file.parent() {
+            let _ = std::fs::remove_dir_all(parent);
+        } else {
+            let _ = std::fs::remove_file(&downloaded_file);
+        }
+
+        result
+    })
+    .await
+    .map_err(|e| format!("tarefa assíncrona falhou: {:#}", e))?
+}
+
+/// Consulta o status e a versão do yt-dlp para download de mídias online.
+#[tauri::command]
+pub fn check_media_downloader<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<crate::media_download::DownloaderStatus, String> {
+    Ok(crate::media_download::get_downloader_status(&app))
+}
+
+/// Baixa e instala o executável oficial do yt-dlp se ainda não estiver presente.
+#[tauri::command]
+pub async fn install_media_downloader<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::media_download::install_yt_dlp(&app)
+            .map(|p| p.to_string_lossy().to_string())
+            .map_err(|e| format!("{:#}", e))
+    })
+    .await
+    .map_err(|e| format!("tarefa assíncrona falhou: {:#}", e))?
 }
 
 /// Inicia a gravação ao vivo de uma reunião.

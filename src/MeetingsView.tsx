@@ -438,7 +438,7 @@ export default function MeetingsView({
                 <input
                   type="text"
                   className="text-input"
-                  placeholder="Caminho do áudio (.mp3, .ogg, .wav, .m4a)..."
+                  placeholder="Caminho do arquivo (.mp4, .mkv, .mp3, .wav, .m4a)..."
                   value={uploadFilePath}
                   onChange={(e) => setUploadFilePath(e.target.value)}
                   disabled={isProcessing}

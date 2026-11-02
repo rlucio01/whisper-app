@@ -29,6 +29,7 @@ mod visual;
 mod gpu_runtime;
 pub mod dictionary;
 pub mod meeting;
+pub mod media_download;
 
 use std::sync::{Arc, Mutex};
 
@@ -239,6 +240,9 @@ pub fn run() {
             commands::toggle_translation,
             commands::pick_audio_file,
             commands::transcribe_audio_file,
+            commands::transcribe_media_url,
+            commands::check_media_downloader,
+            commands::install_media_downloader,
             commands::start_meeting_recording,
             commands::stop_meeting_recording,
             commands::cancel_meeting_recording,

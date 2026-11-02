@@ -1,6 +1,6 @@
 [package]
 name = "whisper_app"
-version = "1.1.1"
+version = "1.2.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -57,8 +57,8 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 enigo = "0.6"
 # Clipboard cross-platform (get/set de texto).
 arboard = "3"
-# Decodificação de arquivos de áudio (MP3, OGG, WAV, FLAC, M4A/AAC).
-symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "vorbis", "wav", "flac", "aac", "isomp4", "ogg"] }
+# Decodificação de arquivos de áudio e vídeo (MP3, OGG, WAV, FLAC, M4A/AAC, MP4, MKV/WebM).
+symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "vorbis", "wav", "flac", "aac", "isomp4", "ogg", "mkv"] }
 # Suporte ao codec Opus (usado em mensagens de voz do WhatsApp: OGG/Opus e .opus).
 symphonia-adapter-libopus = "0.2"
 

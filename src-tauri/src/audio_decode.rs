@@ -1,8 +1,8 @@
-//! Decodificador universal de arquivos de áudio (MP3, OGG/Opus/Vorbis, WAV, FLAC, M4A/AAC).
+//! Decodificador universal de arquivos de áudio e vídeo (MP3, OGG/Opus/Vorbis, WAV, FLAC, M4A/AAC, MP4, MKV/WebM).
 //!
-//! Utiliza `symphonia` com suporte a `libopus` (mensagens de voz do WhatsApp)
-//! para decodificação em Rust, downmixa para mono e resampleia linearmente
-//! para 16 kHz (padrão exigido pelo Whisper).
+//! Utiliza `symphonia` com suporte a `libopus`, containers ISO MP4 e MKV/WebM
+//! para decodificação em Rust, selecionando a primeira faixa de áudio e ignorando faixas de vídeo.
+//! Caso o container ou codec seja exótico (ex: AVI, FLV), há fallback transparente via `ffmpeg` se presente.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -37,12 +37,108 @@ pub struct DecodedAudio {
     pub wav_16k_path: PathBuf,
 }
 
-/// Decodifica qualquer arquivo de áudio suportado para mono 16 kHz e gera um WAV temporário.
-pub fn decode_audio_file(path: &Path) -> Result<DecodedAudio> {
-    if !path.exists() {
-        return Err(anyhow!("Arquivo não encontrado: {}", path.display()));
+/// Tenta localizar um executável do ffmpeg no sistema como fallback para formatos exóticos.
+pub fn find_ffmpeg() -> Option<PathBuf> {
+    let mut cmd = std::process::Command::new("ffmpeg");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    if cmd.arg("-version").output().is_ok() {
+        return Some(PathBuf::from("ffmpeg"));
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
+            let candidates = [
+                PathBuf::from(&localappdata)
+                    .join("Programs")
+                    .join("ffmpeg")
+                    .join("bin")
+                    .join("ffmpeg.exe"),
+                PathBuf::from(&localappdata).join("meetily").join("ffmpeg.exe"),
+                PathBuf::from(&localappdata)
+                    .join("Programs")
+                    .join("Stremio")
+                    .join("ffmpeg.exe"),
+            ];
+            for c in &candidates {
+                if c.exists() {
+                    return Some(c.clone());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Fallback de decodificação via ffmpeg para 16 kHz mono WAV.
+fn decode_with_ffmpeg(path: &Path, ffmpeg_path: &Path) -> Result<DecodedAudio> {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let wav_16k_path = std::env::temp_dir().join(format!("whisper_ffmpeg_{}.wav", ts));
+
+    let mut cmd = std::process::Command::new(ffmpeg_path);
+    cmd.args([
+        "-y",
+        "-v",
+        "error",
+        "-i",
+        &path.to_string_lossy(),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-f",
+        "wav",
+        &wav_16k_path.to_string_lossy(),
+    ]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let status = cmd.status().context("falha ao invocar ffmpeg")?;
+    if !status.success() {
+        return Err(anyhow!("ffmpeg finalizou com erro ({})", status));
+    }
+
+    let mut reader = hound::WavReader::open(&wav_16k_path)
+        .with_context(|| format!("falha ao ler WAV gerado pelo ffmpeg em {:?}", wav_16k_path))?;
+    let spec = reader.spec();
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => reader.samples::<f32>().filter_map(Result::ok).collect(),
+        hound::SampleFormat::Int => {
+            let max_val = (1i64 << (spec.bits_per_sample - 1)) as f32;
+            reader
+                .samples::<i32>()
+                .filter_map(Result::ok)
+                .map(|s| s as f32 / max_val)
+                .collect()
+        }
+    };
+
+    if samples.is_empty() {
+        return Err(anyhow!("Nenhuma amostra de áudio extraída pelo ffmpeg"));
+    }
+
+    let duration_sec = samples.len() as f32 / WHISPER_SAMPLE_RATE as f32;
+    Ok(DecodedAudio {
+        samples,
+        duration_sec,
+        wav_16k_path,
+    })
+}
+
+/// Decodificação nativa via Symphonia (puro Rust, sem processos externos).
+fn decode_audio_file_symphonia(path: &Path) -> Result<DecodedAudio> {
     let file = File::open(path)
         .with_context(|| format!("falha ao abrir arquivo de áudio em {}", path.display()))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -59,37 +155,45 @@ pub fn decode_audio_file(path: &Path) -> Result<DecodedAudio> {
         .format(&hint, mss, &fmt_opts, &meta_opts)
         .with_context(|| {
             format!(
-                "Formato de áudio não suportado ou arquivo corrompido: {}",
+                "Formato de áudio/vídeo não suportado ou arquivo corrompido: {}",
                 path.display()
             )
         })?;
 
     let mut format = probed.format;
-    let track = format
-        .default_track()
-        .ok_or_else(|| anyhow!("Nenhuma faixa de áudio encontrada no arquivo {}", path.display()))?;
-
-    let track_id = track.id;
-    let mut sample_rate = track
-        .codec_params
-        .sample_rate
-        .unwrap_or(48_000); // 48 kHz padrão no caso do Opus/contêiner sem taxa explícita
-    let mut channels = track
-        .codec_params
-        .channels
-        .map(|c| c.count() as u16)
-        .unwrap_or(1);
 
     let dec_opts = DecoderOptions::default();
-    let mut decoder = get_codec_registry()
-        .make(&track.codec_params, &dec_opts)
-        .with_context(|| "Codec de áudio não suportado ou inválido")?;
+
+    // Em arquivos de vídeo (MP4, MKV, MOV, WebM), procuramos a primeira faixa
+    // compatível com o registro de codecs de áudio (ignorando vídeo, legendas, etc.):
+    let (track_id, mut sample_rate, mut channels, mut decoder) = {
+        let mut selected = None;
+        for track in format.tracks() {
+            if let Ok(dec) = get_codec_registry().make(&track.codec_params, &dec_opts) {
+                let s_rate = track.codec_params.sample_rate.unwrap_or(48_000);
+                let ch = track
+                    .codec_params
+                    .channels
+                    .map(|c| c.count() as u16)
+                    .unwrap_or(1);
+                selected = Some((track.id, s_rate, ch, dec));
+                break;
+            }
+        }
+        selected.ok_or_else(|| {
+            anyhow!(
+                "Nenhuma faixa de áudio compatível encontrada no arquivo {}",
+                path.display()
+            )
+        })?
+    };
 
     let mut all_interleaved = Vec::<f32>::new();
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
 
     while let Ok(packet) = format.next_packet() {
         if packet.track_id() != track_id {
+            // Ignora faixas de vídeo ou legendas
             continue;
         }
 
@@ -171,6 +275,27 @@ pub fn decode_audio_file(path: &Path) -> Result<DecodedAudio> {
         duration_sec,
         wav_16k_path,
     })
+}
+
+/// Decodifica qualquer arquivo de áudio ou vídeo suportado para mono 16 kHz e gera um WAV temporário.
+pub fn decode_audio_file(path: &Path) -> Result<DecodedAudio> {
+    if !path.exists() {
+        return Err(anyhow!("Arquivo não encontrado: {}", path.display()));
+    }
+
+    // Tenta primeiro via Symphonia (puro Rust, in-process, ultrarrápido)
+    match decode_audio_file_symphonia(path) {
+        Ok(decoded) => Ok(decoded),
+        Err(symphonia_err) => {
+            // Se falhar e houver ffmpeg disponível, tenta fallback via ffmpeg
+            if let Some(ffmpeg) = find_ffmpeg() {
+                if let Ok(decoded) = decode_with_ffmpeg(path, &ffmpeg) {
+                    return Ok(decoded);
+                }
+            }
+            Err(symphonia_err)
+        }
+    }
 }
 
 #[cfg(test)]
