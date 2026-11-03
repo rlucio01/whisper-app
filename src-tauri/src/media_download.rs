@@ -248,6 +248,13 @@ pub fn download_audio_from_url<R: Runtime>(app: &AppHandle<R>, url: &str) -> Res
             "--no-warnings",
             "--max-filesize",
             "500M",
+            // Simula navegador desktop para contornar bloqueios antibot no TikTok, Instagram e Reels
+            "--user-agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "--extractor-retries",
+            "3",
+            "--socket-timeout",
+            "30",
             // Prioriza fluxos apenas de áudio (m4a/aac, webm/opus) para download instantâneo
             "-f",
             "ba/b",

@@ -305,11 +305,21 @@ pub fn process_meeting_audio<R: Runtime>(
     app: &AppHandle<R>,
     audio_path: &Path,
     context_hint: Option<&str>,
+    engine: Option<&str>,
 ) -> Result<MeetingMinutes> {
-    let _ = app.emit("meeting-status", "Transcrevendo áudio com Whisper…");
+    let use_parakeet = engine == Some("parakeet");
+    if use_parakeet {
+        let _ = app.emit("meeting-status", "Transcrevendo e diarizando com NVIDIA Parakeet-TDT v3…");
+    } else {
+        let _ = app.emit("meeting-status", "Transcrevendo áudio com Whisper…");
+    }
 
     // 1. Transcreve com marcadores de tempo
-    let tr_result = crate::transcription::transcribe_file_standalone(app, audio_path)?;
+    let tr_result = if use_parakeet {
+        crate::parakeet::transcribe_parakeet(app, audio_path)?
+    } else {
+        crate::transcription::transcribe_file_standalone(app, audio_path)?
+    };
 
     let _ = app.emit("meeting-status", "Analisando oradores e gerando ata com IA…");
 
@@ -336,30 +346,10 @@ pub fn process_meeting_audio<R: Runtime>(
         }
     );
 
-    let system_prompt = "Você é um especialista em atas executivas e diarização de fala.\n\
-Analise a transcrição com marcações de tempo e gere uma ata profissional e estruturada.\n\n\
-Diretrizes:\n\
-1. Identifique os diferentes oradores na conversa (atribua nomes reais se citados, ex: 'Rafael', 'Mariana', ou use 'Orador 1', 'Orador 2').\n\
-2. Elabore um Resumo Executivo claro e conciso explicando o objetivo e os temas tratados.\n\
-3. Destaque as Decisões Tomadas.\n\
-4. Destaque os Itens de Ação / Tarefas atribuídas a cada participante com prazo se houver.\n\
-5. Organize a transcrição completa diarizada por fala e intervalo de tempo.\n\n\
-Responda APENAS com um objeto JSON válido (sem blocos markdown ```json), seguindo este schema exato:\n\
-{\n\
-  \"title\": \"Título objetivo da Reunião\",\n\
-  \"executive_summary\": \"Resumo executivo completo...\",\n\
-  \"key_decisions\": [\"Decisão 1\", \"Decisão 2\"],\n\
-  \"action_items\": [\n\
-    {\"speaker\": \"Nome ou Orador\", \"task\": \"Tarefa a realizar\", \"deadline\": \"Prazo ou A definir\", \"done\": false}\n\
-  ],\n\
-  \"speakers\": [\"Orador 1\", \"Orador 2\"],\n\
-  \"diarized_transcript\": [\n\
-    {\"speaker\": \"Orador 1\", \"timestamp\": \"00:00 - 00:15\", \"text\": \"Falas...\"}\n\
-  ]\n\
-}";
+    let system_prompt = build_meeting_system_prompt();
 
     // 2. Chama LLM
-    let llm_response = crate::llm::call_llm_custom(app, system_prompt, &user_prompt, Some(4000));
+    let llm_response = crate::llm::call_llm_custom(app, &system_prompt, &user_prompt, Some(4000));
 
     let parsed_data = match llm_response {
         Ok(text) => parse_meeting_json(&text).unwrap_or_else(|| fallback_meeting_data(&tr_result)),
@@ -536,4 +526,95 @@ pub fn set_action_item_done<R: Runtime>(
     }
 
     Ok(())
+}
+
+fn build_meeting_system_prompt() -> String {
+    r#"Você é um especialista de classe mundial em atas executivas e diarização de fala multi-oradores.
+Sua principal missão é identificar com precisão QUEM ESTÁ FALANDO (diarização) e estruturar a ata da reunião.
+
+DIRETRIZES CRÍTICAS DE DIARIZAÇÃO DE ORADORES:
+1. NUNCA classifique toda a conversa sob um único 'Orador 1' se houver diálogo evidente. Em entrevistas, palcos, apresentações ou reuniões com perguntas e respostas, analise as alternâncias de fala:
+   - Quem faz perguntas ou conduz a conversa é um orador (ex: 'Apresentador', 'Entrevistador' ou 'Orador 1').
+   - Quem responde ou comenta é outro orador (ex: 'Convidado 1', 'Participante' ou 'Orador 2').
+   - Se uma terceira pessoa intervir ou falar, crie um terceiro orador (ex: 'Convidada 2', 'Orador 3').
+2. QUEBRA DE FALAS NO MESMO INTERVALO: Se uma linha da transcrição contiver tanto a resposta de um orador quanto uma réplica/pergunta de outro (ex: 'Não, na academia não. Mas vocês não gostam?'), OBRIGATORIAMENTE separe em turnos distintos no array 'diarized_transcript'.
+3. QUANTIDADE DE ORADORES: Se o contexto mencionar quantidade (ex: 3 pessoas, palco com 3 oradores), OBRIGATORIAMENTE distribua as falas entre essa quantidade de oradores no array 'speakers' e no 'diarized_transcript'.
+4. ESTRUTURA COMPLETA: Gere resumo executivo conciso, decisões principais e itens de ação específicos por pessoa com prazo.
+
+Responda APENAS com um objeto JSON válido (sem blocos markdown ```json), seguindo este schema exato:
+{
+  "title": "Título objetivo da Reunião",
+  "executive_summary": "Resumo executivo completo...",
+  "key_decisions": ["Decisão 1", "Decisão 2"],
+  "action_items": [
+    {"speaker": "Nome ou Orador", "task": "Tarefa a realizar", "deadline": "Prazo ou A definir", "done": false}
+  ],
+  "speakers": ["Apresentador", "Convidado 1", "Convidada 2"],
+  "diarized_transcript": [
+    {"speaker": "Apresentador", "timestamp": "00:01 - 00:06", "text": "Missão dada é missão cumprida. E vocês malham juntos?"},
+    {"speaker": "Convidado 1", "timestamp": "00:06 - 00:08", "text": "Não, na mesma academia não, mas malha."},
+    {"speaker": "Apresentador", "timestamp": "00:08 - 00:11", "text": "Não gostam? Por quê? Pra não ficar junto pra não ficar perto?"}
+  ]
+}"#.to_string()
+}
+
+pub fn reprocess_meeting_transcript<R: Runtime>(
+    app: &AppHandle<R>,
+    id: &str,
+    context_hint: Option<&str>,
+) -> Result<MeetingMinutes> {
+    let mut all = load_all_meetings(app)?;
+    let pos = all
+        .iter()
+        .position(|m| m.id == id)
+        .ok_or_else(|| anyhow!("Reunião com ID {} não encontrada", id))?;
+
+    let existing = &all[pos];
+
+    let mut formatted_turns = String::new();
+    for turn in &existing.diarized_transcript {
+        formatted_turns.push_str(&format!("[{}] {}\n", turn.timestamp, turn.text));
+    }
+
+    let user_prompt = format!(
+        "Contexto da Reunião ou Participantes informados: {}\n\nTranscrição com timestamps:\n{}",
+        context_hint.unwrap_or("Não especificado"),
+        if formatted_turns.is_empty() {
+            &existing.raw_transcript
+        } else {
+            &formatted_turns
+        }
+    );
+
+    let system_prompt = build_meeting_system_prompt();
+    let llm_response = crate::llm::call_llm_custom(app, &system_prompt, &user_prompt, Some(4000))
+        .context("falha ao consultar LLM para reprocessar ata")?;
+
+    let parsed = parse_meeting_json(&llm_response)
+        .ok_or_else(|| anyhow!("LLM não retornou um JSON de ata válido"))?;
+
+    let updated = MeetingMinutes {
+        id: existing.id.clone(),
+        title: parsed.title,
+        created_at: existing.created_at,
+        duration_sec: existing.duration_sec,
+        executive_summary: parsed.executive_summary,
+        key_decisions: parsed.key_decisions,
+        action_items: parsed.action_items,
+        speakers: parsed.speakers,
+        diarized_transcript: parsed.diarized_transcript,
+        raw_transcript: existing.raw_transcript.clone(),
+    };
+
+    all[pos] = updated.clone();
+
+    let path = meetings_file_path(app)?;
+    let mut file = File::create(&path)?;
+    for m in all.iter().rev() {
+        let json_line = serde_json::to_string(m)?;
+        writeln!(file, "{}", json_line)?;
+    }
+
+    let _ = app.emit("meeting-completed", &updated);
+    Ok(updated)
 }

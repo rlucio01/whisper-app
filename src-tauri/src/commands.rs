@@ -442,14 +442,18 @@ pub async fn pick_audio_file() -> Result<Option<String>, String> {
 pub async fn transcribe_audio_file<R: Runtime>(
     app: AppHandle<R>,
     file_path: String,
+    engine: Option<String>,
 ) -> Result<crate::transcription::TranscriptionFileResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = std::path::PathBuf::from(file_path.trim());
-        crate::transcription::transcribe_file_standalone(&app, &path)
+        if engine.as_deref() == Some("parakeet") {
+            crate::parakeet::transcribe_parakeet(&app, &path).map_err(|e| format!("{:#}", e))
+        } else {
+            crate::transcription::transcribe_file_standalone(&app, &path).map_err(|e| format!("{:#}", e))
+        }
     })
     .await
     .map_err(|e| format!("tarefa assíncrona falhou: {:#}", e))?
-    .map_err(|e| format!("{:#}", e))
 }
 
 /// Transcreve um vídeo ou áudio diretamente de um link da web (YouTube, TikTok, Instagram, etc.).
@@ -457,6 +461,7 @@ pub async fn transcribe_audio_file<R: Runtime>(
 pub async fn transcribe_media_url<R: Runtime>(
     app: AppHandle<R>,
     url: String,
+    engine: Option<String>,
 ) -> Result<crate::transcription::TranscriptionFileResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let clean_url = url.trim();
@@ -469,8 +474,13 @@ pub async fn transcribe_media_url<R: Runtime>(
             .map_err(|e| format!("Falha ao extrair áudio da URL: {:#}", e))?;
 
         // 2. Transcrição do arquivo de áudio extraído
-        let result = crate::transcription::transcribe_file_standalone(&app, &downloaded_file)
-            .map_err(|e| format!("{:#}", e));
+        let result = if engine.as_deref() == Some("parakeet") {
+            crate::parakeet::transcribe_parakeet(&app, &downloaded_file)
+                .map_err(|e| format!("{:#}", e))
+        } else {
+            crate::transcription::transcribe_file_standalone(&app, &downloaded_file)
+                .map_err(|e| format!("{:#}", e))
+        };
 
         // 3. Limpeza do arquivo e pasta temporária
         if let Some(parent) = downloaded_file.parent() {
@@ -533,14 +543,76 @@ pub async fn process_meeting<R: Runtime>(
     app: AppHandle<R>,
     audio_path: String,
     context_hint: Option<String>,
+    engine: Option<String>,
 ) -> Result<crate::meeting::MeetingMinutes, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = std::path::PathBuf::from(audio_path.trim());
-        crate::meeting::process_meeting_audio(&app, &path, context_hint.as_deref())
+        crate::meeting::process_meeting_audio(&app, &path, context_hint.as_deref(), engine.as_deref())
     })
     .await
     .map_err(|e| format!("tarefa de processamento de reunião cancelada: {:#}", e))?
     .map_err(|e| format!("{:#}", e))
+}
+
+/// Processa uma reunião a partir de uma URL web (YouTube, Teams, Zoom, Drive, etc.), extrai áudio e gera ata com oradores.
+#[tauri::command]
+pub async fn process_meeting_url<R: Runtime>(
+    app: AppHandle<R>,
+    url: String,
+    context_hint: Option<String>,
+    engine: Option<String>,
+) -> Result<crate::meeting::MeetingMinutes, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let clean_url = url.trim();
+        if clean_url.is_empty() {
+            return Err("URL da reunião não informada".to_string());
+        }
+
+        let _ = app.emit("meeting-status", "Extraindo áudio da URL da reunião...");
+
+        // 1. Download do áudio via yt-dlp
+        let downloaded_file = crate::media_download::download_audio_from_url(&app, clean_url)
+            .map_err(|e| format!("Falha ao extrair áudio da URL: {:#}", e))?;
+
+        // 2. Processa o áudio extraído como reunião
+        let minutes_res = crate::meeting::process_meeting_audio(
+            &app,
+            &downloaded_file,
+            context_hint.as_deref(),
+            engine.as_deref(),
+        );
+
+        // 3. Limpeza do arquivo e pasta temporária
+        if let Some(parent) = downloaded_file.parent() {
+            let _ = std::fs::remove_dir_all(parent);
+        } else {
+            let _ = std::fs::remove_file(&downloaded_file);
+        }
+
+        minutes_res.map_err(|e| format!("{:#}", e))
+    })
+    .await
+    .map_err(|e| format!("tarefa assíncrona falhou: {:#}", e))?
+}
+
+/// Retorna o status do modelo e runtime NVIDIA Parakeet-TDT 0.6B v3.
+#[tauri::command]
+pub fn get_parakeet_status<R: Runtime>(
+    app: AppHandle<R>,
+) -> crate::parakeet::ParakeetStatus {
+    crate::parakeet::get_status(&app)
+}
+
+/// Dispara o download e instalação em background do Parakeet-TDT v3 e sherpa-onnx.
+#[tauri::command]
+pub fn download_parakeet_model<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::parakeet::spawn_download(app).map_err(|e| format!("{:#}", e))
+}
+
+/// Exclui os arquivos do modelo Parakeet-TDT para liberar espaço.
+#[tauri::command]
+pub fn delete_parakeet_model<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::parakeet::delete_parakeet_model(&app).map_err(|e| format!("{:#}", e))
 }
 
 /// Lista todas as atas de reuniões salvas.
@@ -564,6 +636,21 @@ pub fn set_meeting_action_done<R: Runtime>(
     done: bool,
 ) -> Result<(), String> {
     crate::meeting::set_action_item_done(&app, &meeting_id, action_idx, done).map_err(|e| format!("{:#}", e))
+}
+
+/// Reprocessa uma ata de reunião existente aplicando novo contexto e identificação de oradores com IA.
+#[tauri::command]
+pub async fn reprocess_meeting<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    context_hint: Option<String>,
+) -> Result<crate::meeting::MeetingMinutes, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::meeting::reprocess_meeting_transcript(&app, id.trim(), context_hint.as_deref())
+    })
+    .await
+    .map_err(|e| format!("tarefa cancelada: {:#}", e))?
+    .map_err(|e| format!("{:#}", e))
 }
 
 /// Testa a conectividade e validade de uma chave de API para o provedor selecionado.

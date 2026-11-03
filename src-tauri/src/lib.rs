@@ -30,6 +30,7 @@ mod gpu_runtime;
 pub mod dictionary;
 pub mod meeting;
 pub mod media_download;
+pub mod parakeet;
 
 use std::sync::{Arc, Mutex};
 
@@ -247,10 +248,15 @@ pub fn run() {
             commands::stop_meeting_recording,
             commands::cancel_meeting_recording,
             commands::process_meeting,
+            commands::process_meeting_url,
             commands::get_meetings,
             commands::delete_meeting,
             commands::set_meeting_action_done,
+            commands::reprocess_meeting,
             commands::test_api_key,
+            commands::get_parakeet_status,
+            commands::download_parakeet_model,
+            commands::delete_parakeet_model,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o app Tauri");

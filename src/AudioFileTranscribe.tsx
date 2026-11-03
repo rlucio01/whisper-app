@@ -88,6 +88,7 @@ export default function AudioFileTranscribe({
   onSendToMeeting,
 }: AudioFileTranscribeProps) {
   const [mode, setMode] = useState<"file" | "url">("file");
+  const [engine, setEngine] = useState<"whisper" | "parakeet">("whisper");
   const [filePath, setFilePath] = useState("");
   const [url, setUrl] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -121,6 +122,7 @@ export default function AudioFileTranscribe({
     try {
       const res = await invoke<TranscriptionFileResult>("transcribe_audio_file", {
         filePath: filePath.trim(),
+        engine,
       });
       setResult(res);
     } catch (err) {
@@ -142,6 +144,7 @@ export default function AudioFileTranscribe({
     try {
       const res = await invoke<TranscriptionFileResult>("transcribe_media_url", {
         url: cleanUrl,
+        engine,
       });
       setResult(res);
     } catch (err) {
@@ -270,6 +273,49 @@ export default function AudioFileTranscribe({
             </svg>
             Link da Web (YouTube, TikTok, Instagram)
           </button>
+        </div>
+
+        {/* Seletor do Motor: Whisper vs NVIDIA Parakeet */}
+        <div style={{ marginBottom: "1.25rem" }}>
+          <label className="field-label" style={{ marginBottom: "0.4rem", display: "block", fontSize: "0.82rem" }}>
+            Motor de Transcrição:
+          </label>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className={`toggle-btn ${engine === "whisper" ? "active" : ""}`}
+              onClick={() => setEngine("whisper")}
+              style={{ padding: "0.4rem 0.8rem", borderRadius: "6px" }}
+            >
+              Whisper (Padrão)
+            </button>
+            <button
+              type="button"
+              className={`toggle-btn ${engine === "parakeet" ? "active" : ""}`}
+              onClick={() => setEngine("parakeet")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "0.4rem 0.8rem",
+                borderRadius: "6px",
+              }}
+            >
+              <span>NVIDIA Parakeet-TDT v3</span>
+              <span
+                style={{
+                  fontSize: "0.68rem",
+                  padding: "1px 5px",
+                  borderRadius: "4px",
+                  background: "rgba(16, 185, 129, 0.2)",
+                  color: "#10b981",
+                  fontWeight: 600,
+                }}
+              >
+                Oradores & Timestamps
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Modo 1: Arquivo Local */}
@@ -506,6 +552,18 @@ export default function AudioFileTranscribe({
                     </>
                   )}
                 </button>
+
+                {onSendToMeeting && url.trim() && (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={isProcessing}
+                    onClick={() => onSendToMeeting(url.trim())}
+                    title="Processar este link na aba de Reuniões para diarização por orador e ata executiva"
+                  >
+                    Gerar Ata de Reunião
+                  </button>
+                )}
               </div>
             </div>
           </>
@@ -525,7 +583,7 @@ export default function AudioFileTranscribe({
             <div>
               <h3 className="card-title">Resultado da Transcrição</h3>
               <p className="field-hint">
-                Duração estimada: <strong>{formatDuration(result.duration_sec)}</strong> • {wordCount} palavras • {result.segments.length} segmentos
+                Duração estimada: <strong>{formatDuration(result.duration_sec)}</strong> • {wordCount} palavras • {(result.segments || []).length} segmentos
               </p>
             </div>
 
@@ -561,7 +619,7 @@ export default function AudioFileTranscribe({
               className={`tab-btn ${activeTab === "segments" ? "active" : ""}`}
               onClick={() => setActiveTab("segments")}
             >
-              Segmentos com Timestamps ({result.segments.length})
+              Segmentos com Timestamps ({(result.segments || []).length})
             </button>
           </div>
 

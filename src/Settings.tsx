@@ -72,6 +72,22 @@ interface GpuRuntimeProgress {
   total: number;
 }
 
+export interface ParakeetStatus {
+  installed: boolean;
+  is_downloading: boolean;
+  size_mb: number;
+  runtime_installed: boolean;
+  model_installed: boolean;
+  model_dir?: string | null;
+}
+
+export interface ParakeetProgress {
+  step: string;
+  downloaded: number;
+  total: number;
+  percentage: number;
+}
+
 interface MetricItem {
   current: number;
   limit: number;
@@ -321,6 +337,9 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
   const [gpuStatus, setGpuStatus] = useState<GpuRuntimeStatus | null>(null);
   const [gpuProgress, setGpuProgress] = useState<GpuRuntimeProgress | null>(null);
   const [gpuError, setGpuError] = useState<string | null>(null);
+  const [parakeetStatus, setParakeetStatus] = useState<ParakeetStatus | null>(null);
+  const [parakeetProgress, setParakeetProgress] = useState<ParakeetProgress | null>(null);
+  const [parakeetError, setParakeetError] = useState<string | null>(null);
   const [testingOverlay, setTestingOverlay] = useState(false);
 
   // Estados do Dicionário Pessoal e Frequência
@@ -364,6 +383,12 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
     invoke<GpuRuntimeStatus>("get_gpu_runtime_status")
       .then(setGpuStatus)
       .catch((e) => console.error("Falha ao obter status GPU:", e));
+  };
+
+  const refreshParakeetStatus = () => {
+    invoke<ParakeetStatus>("get_parakeet_status")
+      .then(setParakeetStatus)
+      .catch((e) => console.error("Falha ao obter status Parakeet:", e));
   };
 
   const loadFrequentWords = () => {
@@ -548,6 +573,27 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
       })
     );
 
+    refreshParakeetStatus();
+    track(
+      listen<ParakeetProgress>("parakeet-download-progress", (e) => {
+        setParakeetProgress(e.payload);
+      })
+    );
+    track(
+      listen<void>("parakeet-download-complete", () => {
+        setParakeetProgress(null);
+        setParakeetError(null);
+        refreshParakeetStatus();
+      })
+    );
+    track(
+      listen<{ error: string }>("parakeet-download-error", (e) => {
+        setParakeetProgress(null);
+        setParakeetError(e.payload.error);
+        refreshParakeetStatus();
+      })
+    );
+
     return () => unlistens.forEach((fn) => fn());
   }, []);
 
@@ -569,6 +615,22 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
         refreshGpuStatus();
       } catch (err) {
         alert(`Falha ao apagar módulo GPU: ${err}`);
+      }
+    }
+  };
+
+  const handleDownloadParakeet = () => {
+    setParakeetError(null);
+    invoke("download_parakeet_model").catch((err) => setParakeetError(String(err)));
+  };
+
+  const handleDeleteParakeet = async () => {
+    if (window.confirm("Deseja apagar os arquivos do modelo NVIDIA Parakeet-TDT para liberar espaço no disco?")) {
+      try {
+        await invoke("delete_parakeet_model");
+        refreshParakeetStatus();
+      } catch (err) {
+        alert(`Falha ao apagar modelo Parakeet: ${err}`);
       }
     }
   };
@@ -1127,6 +1189,77 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                     )}
                   </div>
                 )}
+
+                <div
+                  className={`gpu-runtime-card ${!parakeetStatus?.installed ? "not-installed" : ""}`}
+                  style={{ marginTop: "1rem" }}
+                >
+                  <div className="gpu-runtime-header">
+                    <div className="gpu-runtime-title" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span>NVIDIA Parakeet-TDT 0.6B v3</span>
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          fontWeight: 600,
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          background: parakeetStatus?.installed ? "rgba(34, 197, 94, 0.2)" : "rgba(234, 179, 8, 0.2)",
+                          color: parakeetStatus?.installed ? "#4ade80" : "#facc15",
+                        }}
+                      >
+                        {parakeetStatus?.installed ? `Instalado • ${parakeetStatus.size_mb} MB` : "Diarização de Reuniões"}
+                      </span>
+                    </div>
+                    <div className="gpu-runtime-actions">
+                      {parakeetStatus?.installed ? (
+                        <button
+                          type="button"
+                          className="btn-secondary btn-small"
+                          onClick={handleDeleteParakeet}
+                        >
+                          Desinstalar modelo
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-primary btn-small"
+                          onClick={handleDownloadParakeet}
+                          disabled={!!parakeetProgress}
+                        >
+                          {parakeetProgress ? "Baixando modelo…" : "Baixar Parakeet-TDT v3 (~670 MB)"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="gpu-runtime-desc">
+                    Modelo de última geração desenvolvido pela NVIDIA baseado na arquitetura Token-and-Duration Transducer (FastConformer). Especializado em alinhamento temporal de alta fidelidade e separação precisa de oradores (<code style={{ fontSize: "0.76rem" }}>&lt;|spkchange|&gt;</code>) em 25 idiomas (incluindo Português). Ideal para transcrição e geração de atas de reuniões corporativas totalmente offline.
+                  </div>
+                  {parakeetProgress && (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <div className="model-progress-bar">
+                        <div
+                          className="model-progress-fill"
+                          style={{
+                            width: `${Math.min(100, Math.max(5, parakeetProgress.percentage))}%`,
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.25rem" }}>
+                        <span className="field-hint" style={{ fontSize: "0.74rem" }}>
+                          {parakeetProgress.step}
+                        </span>
+                        <span className="field-hint" style={{ fontSize: "0.74rem" }}>
+                          {formatMB(parakeetProgress.downloaded)} / {formatMB(parakeetProgress.total)} ({parakeetProgress.percentage.toFixed(0)}%)
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {parakeetError && (
+                    <p className="field-hint" style={{ color: "#ef4444", marginTop: "0.4rem" }}>
+                      {parakeetError}
+                    </p>
+                  )}
+                </div>
 
                 <section className="field">
                   <label className="field-label">Dispositivo de execução</label>
