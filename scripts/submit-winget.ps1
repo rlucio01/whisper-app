@@ -124,18 +124,18 @@ New-Item -Force -ItemType Directory $manifestDir | Out-Null
 
 # version manifest
 @"
-# yaml-language-server: `$schema=https://aka.ms/winget-manifest.version.1.9.0.schema.json
+# yaml-language-server: `$schema=https://aka.ms/winget-manifest.version.1.28.0.schema.json
 
 PackageIdentifier: rlucio01.WhisperApp
 PackageVersion: $Version
 DefaultLocale: en-US
 ManifestType: version
-ManifestVersion: 1.9.0
+ManifestVersion: 1.28.0
 "@ | Set-Content "$manifestDir\rlucio01.WhisperApp.yaml" -Encoding UTF8
 
 # installer manifest
 @"
-# yaml-language-server: `$schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+# yaml-language-server: `$schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
 
 PackageIdentifier: rlucio01.WhisperApp
 PackageVersion: $Version
@@ -147,12 +147,12 @@ Installers:
   InstallerSha256: $exeSha256
   UpgradeBehavior: install
 ManifestType: installer
-ManifestVersion: 1.9.0
+ManifestVersion: 1.28.0
 "@ | Set-Content "$manifestDir\rlucio01.WhisperApp.installer.yaml" -Encoding UTF8
 
 # locale en-US
 @"
-# yaml-language-server: `$schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+# yaml-language-server: `$schema=https://aka.ms/winget-manifest.defaultLocale.1.28.0.schema.json
 
 PackageIdentifier: rlucio01.WhisperApp
 PackageVersion: $Version
@@ -183,12 +183,12 @@ Tags:
 - llm
 ReleaseNotesUrl: https://github.com/rlucio01/whisper-app/releases/tag/v$Version
 ManifestType: defaultLocale
-ManifestVersion: 1.9.0
+ManifestVersion: 1.28.0
 "@ | Set-Content "$manifestDir\rlucio01.WhisperApp.locale.en-US.yaml" -Encoding UTF8
 
 # locale pt-BR
 @"
-# yaml-language-server: `$schema=https://aka.ms/winget-manifest.locale.1.9.0.schema.json
+# yaml-language-server: `$schema=https://aka.ms/winget-manifest.locale.1.28.0.schema.json
 
 PackageIdentifier: rlucio01.WhisperApp
 PackageVersion: $Version
@@ -217,7 +217,7 @@ Tags:
 - llm
 ReleaseNotesUrl: https://github.com/rlucio01/whisper-app/releases/tag/v$Version
 ManifestType: locale
-ManifestVersion: 1.9.0
+ManifestVersion: 1.28.0
 "@ | Set-Content "$manifestDir\rlucio01.WhisperApp.locale.pt-BR.yaml" -Encoding UTF8
 
 Write-OK "4 arquivos gerados em: $manifestDir"
@@ -349,3 +349,4 @@ Write-Host "`n================================================" -ForegroundColor
 Write-Host " Publicacao v$Version concluida com sucesso!" -ForegroundColor Green
 Write-Host " PR: $prUrl" -ForegroundColor Green
 Write-Host "================================================`n" -ForegroundColor Green
+
