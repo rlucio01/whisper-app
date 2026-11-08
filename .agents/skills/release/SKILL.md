@@ -123,9 +123,9 @@ Quando o workflow terminar:
 Para manter o histórico e a página de Releases limpa, profissional e uniforme, siga obrigatoriamente este padrão:
 
 ### 1. Título da Release (Release Title)
-- **Formato obrigatório**: `whisper_app v<versão> - <Título Descritivo>`
-- **Exemplo correto**: `whisper_app v1.1.0 - Assistente de Primeiro Acesso e Tutorial de IA`
-- **Incorreto**: `v1.1.0` (sem o nome do app e sem descrição) ou apenas a tag crua.
+- **Formato obrigatório**: `whisper_app v<versão>`
+- **Exemplo correto**: `whisper_app v1.3.0`
+- **Incorreto**: Subtítulos longos no título da release (ex: `whisper_app v1.3.0 - Motor NVIDIA...`). O título deve ser sempre limpo e conciso, mantendo o padrão do repositório (`whisper_app vX.Y.Z`). Descrições detalhadas pertencem exclusivamente ao corpo da Release (Release Notes).
 
 ### 2. Corpo do Release (Release Notes) — REGRA CRÍTICA ANTI-CABEÇALHO DUPLO
 - **ATENÇÃO**: O GitHub já renderiza o **Título da Release** como um cabeçalho `<h1>` automático no topo da página.
@@ -139,7 +139,7 @@ Para manter o histórico e a página de Releases limpa, profissional e uniforme,
 ### 3. Como Criar ou Atualizar o Título e as Notas via GitHub CLI (`gh`)
 Após o término do workflow do GitHub Actions (ou na criação):
 ```powershell
-gh release edit vX.Y.Z --title "whisper_app vX.Y.Z - <Título Amigável>" --notes-file release_notes.md
+gh release edit vX.Y.Z --title "whisper_app vX.Y.Z" --notes-file release_notes.md
 ```
 
 ---
