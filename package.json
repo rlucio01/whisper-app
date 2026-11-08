@@ -2,6 +2,7 @@
   "name": "whisper_app",
   "private": true,
   "version": "1.3.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

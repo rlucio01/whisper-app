@@ -19,6 +19,9 @@
   <a href="https://github.com/rlucio01/whisper-app/actions/workflows/ci.yml">
     <img src="https://github.com/rlucio01/whisper-app/actions/workflows/ci.yml/badge.svg" alt="CI status" />
   </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/licen%C3%A7a-MIT-blue.svg" alt="Licença MIT" />
+  </a>
   <img src="https://img.shields.io/badge/plataformas-Windows%20%7C%20Linux%20%7C%20macOS-0078D6" alt="Plataformas: Windows | Linux | macOS" />
   <img src="https://img.shields.io/badge/tamanho%20em%20idle-%3C7MB-brightgreen" alt="Menos de 7MB em idle" />
 </p>
@@ -389,4 +392,4 @@ O Whisper App possui suporte nativo oficial multiplataforma a partir da versão 
 
 ## Licença
 
-Repositório para uso pessoal e transparência. Sinta-se livre para explorar o código; não licenciado para redistribuição ou exploração comercial.
+Este projeto está licenciado sob a Licença MIT - consulte o arquivo [LICENSE](LICENSE) para obter mais detalhes.

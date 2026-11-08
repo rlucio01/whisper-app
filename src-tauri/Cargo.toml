@@ -2,7 +2,8 @@
 name = "whisper_app"
 version = "1.3.0"
 description = "A Tauri App"
-authors = ["you"]
+authors = ["rlucio01"]
+license = "MIT"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
