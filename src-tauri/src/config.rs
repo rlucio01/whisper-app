@@ -89,9 +89,8 @@ pub enum WhisperModel {
 
 impl Default for WhisperModel {
     fn default() -> Self {
-        // Small tem o melhor equilíbrio para CPU comum em PT-BR.
-        // Também mantém compatibilidade com quem já tinha esse modelo baixado.
-        WhisperModel::Small
+        // NVIDIA Parakeet-TDT 0.6B v3 é o modelo local padrão a partir da v1.4.
+        WhisperModel::ParakeetV3
     }
 }
 
@@ -572,29 +571,58 @@ pub fn config_file_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf> {
 /// (não erra — é o caso normal na primeira execução).
 pub fn load<R: Runtime>(app: &AppHandle<R>) -> Result<AppConfig> {
     let path = config_file_path(app)?;
+    let bak_path = path.with_extension("json.bak");
+
+    let parse_file = |p: &std::path::Path| -> Result<AppConfig> {
+        let s = std::fs::read_to_string(p)
+            .with_context(|| format!("falha ao ler config em {}", p.display()))?;
+        let mut cfg: AppConfig = serde_json::from_str(&s)
+            .with_context(|| format!("config.json inválido em {}", p.display()))?;
+        if cfg.llm_model == "llama-3.3-70b-versatile" || cfg.llm_model == "llama-3.1-8b-instant" {
+            cfg.llm_model = "openai/gpt-oss-20b".to_string();
+        }
+        Ok(cfg)
+    };
+
     if !path.exists() {
+        if bak_path.exists() {
+            if let Ok(cfg) = parse_file(&bak_path) {
+                return Ok(cfg);
+            }
+        }
         return Ok(AppConfig::default());
     }
-    let s = std::fs::read_to_string(&path)
-        .with_context(|| format!("falha ao ler config em {}", path.display()))?;
-    let mut cfg: AppConfig = serde_json::from_str(&s)
-        .with_context(|| format!("config.json inválido em {}", path.display()))?;
 
-    // Migra automaticamente modelos descontinuados da Groq para a nova versão de produção
-    if cfg.llm_model == "llama-3.3-70b-versatile" || cfg.llm_model == "llama-3.1-8b-instant" {
-        cfg.llm_model = "openai/gpt-oss-20b".to_string();
+    match parse_file(&path) {
+        Ok(cfg) => Ok(cfg),
+        Err(primary_err) => {
+            if bak_path.exists() {
+                if let Ok(cfg) = parse_file(&bak_path) {
+                    eprintln!("[config] config.json corrompido ({:#}), restaurando backup", primary_err);
+                    return Ok(cfg);
+                }
+            }
+            // Preserva o arquivo corrompido para diagnóstico em vez de sobrescrevê-lo.
+            let _ = std::fs::copy(&path, path.with_extension("json.corrupt"));
+            Err(primary_err)
+        }
     }
-
-    Ok(cfg)
 }
 
-/// Salva o config no disco. Usado quando a UI de settings edita algo.
+/// Salva o config no disco de forma atômica (escreve em `.tmp`, faz backup `.bak` e renomeia).
 #[allow(dead_code)] // usado a partir da etapa 8 (UI de settings)
 pub fn save<R: Runtime>(app: &AppHandle<R>, cfg: &AppConfig) -> Result<()> {
     let path = config_file_path(app)?;
+    let tmp_path = path.with_extension("json.tmp");
+    let bak_path = path.with_extension("json.bak");
     let s = serde_json::to_string_pretty(cfg).context("falha ao serializar config")?;
-    std::fs::write(&path, s)
-        .with_context(|| format!("falha ao escrever config em {}", path.display()))?;
+    std::fs::write(&tmp_path, &s)
+        .with_context(|| format!("falha ao escrever config temporário em {}", tmp_path.display()))?;
+    if path.exists() {
+        let _ = std::fs::copy(&path, &bak_path);
+    }
+    std::fs::rename(&tmp_path, &path)
+        .with_context(|| format!("falha ao atualizar config em {}", path.display()))?;
     Ok(())
 }
 
@@ -608,7 +636,7 @@ mod tests {
         assert_eq!(cfg.provider, LlmProvider::Openai);
         assert_eq!(cfg.hotkey, "Ctrl+Super");
         assert_eq!(cfg.transcription_provider, TranscriptionProvider::Local);
-        assert_eq!(cfg.whisper_model, WhisperModel::Small);
+        assert_eq!(cfg.whisper_model, WhisperModel::ParakeetV3);
         assert_eq!(cfg.overlay.scale, 0.75);
     }
 

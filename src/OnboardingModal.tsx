@@ -108,7 +108,7 @@ export default function OnboardingModal({
         updated.skip_llm_formatting = true;
       }
 
-      await invoke("save_config", { config: updated });
+      await invoke("save_config", { newConfig: updated });
       onComplete();
     } catch (err) {
       console.error("Erro ao salvar configuração inicial:", err);
