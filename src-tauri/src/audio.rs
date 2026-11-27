@@ -139,6 +139,11 @@ fn audio_thread_loop<R: Runtime>(cmd_rx: mpsc::Receiver<Command>, app: AppHandle
                     Ok(mut r) => {
                         r._muter = muter;
                         recording = Some(r);
+                        // Pré-aquece o modelo local em background enquanto o usuário fala
+                        // (para Parakeet, elimina o cold-start ao soltar a tecla).
+                        if let Some(ts) = app.try_state::<crate::transcription::TranscriptionService>() {
+                            ts.warmup();
+                        }
                     }
                     Err(e) => {
                         drop(muter);

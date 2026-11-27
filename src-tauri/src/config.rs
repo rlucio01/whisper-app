@@ -83,6 +83,8 @@ pub enum WhisperModel {
     /// `large-v3-turbo` quantizado — precisão de large com metade do tamanho
     /// e ~2x mais rápido que large-v3 normal.
     LargeTurbo,
+    /// NVIDIA Parakeet-TDT 0.6B v3 (INT8 via sherpa-onnx) — rápido e preciso em CPU.
+    ParakeetV3,
 }
 
 impl Default for WhisperModel {

@@ -84,7 +84,7 @@ function detectPlatform(url: string): PlatformInfo | null {
 }
 
 export default function AudioFileTranscribe({
-  onBack,
+  onBack: _onBack,
   onSendToMeeting,
 }: AudioFileTranscribeProps) {
   const [mode, setMode] = useState<"file" | "url">("file");
@@ -194,29 +194,11 @@ export default function AudioFileTranscribe({
 
   return (
     <div className="audio-file-transcribe-view">
-      <header className="page-header">
-        <button
-          type="button"
-          className="btn-back"
-          onClick={onBack}
-          aria-label="Voltar"
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="19" y1="12" x2="5" y2="12" />
-            <polyline points="12 19 5 12 12 5" />
-          </svg>
-          Voltar
-        </button>
-        <h2>Transcrever Áudio ou Vídeo</h2>
+      <header className="pane-header">
+        <div>
+          <h1 className="pane-title">Áudio &amp; Vídeo</h1>
+          <p className="pane-subtitle">Transcreva arquivos locais ou links da web</p>
+        </div>
       </header>
 
       <div className="settings-card" style={{ marginTop: "1rem" }}>

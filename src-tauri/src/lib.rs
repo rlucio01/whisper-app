@@ -31,6 +31,8 @@ pub mod dictionary;
 pub mod meeting;
 pub mod media_download;
 pub mod parakeet;
+#[cfg(target_os = "windows")]
+mod parakeet_ffi;
 
 use std::sync::{Arc, Mutex};
 

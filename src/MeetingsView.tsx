@@ -143,7 +143,7 @@ function formatDate(val: number | string): string {
 }
 
 export default function MeetingsView({
-  onBack,
+  onBack: _onBack,
   initialAudioPath,
 }: MeetingsViewProps) {
   const isInitialUrl = Boolean(
@@ -509,29 +509,11 @@ export default function MeetingsView({
 
   return (
     <div className="meetings-container">
-      <header className="page-header">
-        <button
-          type="button"
-          className="btn-back"
-          onClick={onBack}
-          aria-label="Voltar"
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="19" y1="12" x2="5" y2="12" />
-            <polyline points="12 19 5 12 12 5" />
-          </svg>
-          Voltar
-        </button>
-        <h2>Reuniões e Atas Inteligentes</h2>
+      <header className="pane-header">
+        <div>
+          <h1 className="pane-title">Reuniões</h1>
+          <p className="pane-subtitle">Gravação, diarização por orador e atas inteligentes</p>
+        </div>
       </header>
 
       {/* Card de Gravação / Processamento */}

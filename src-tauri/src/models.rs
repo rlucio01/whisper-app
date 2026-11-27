@@ -87,6 +87,12 @@ impl WhisperModel {
                 size_mb: 574,
                 display_name: "Large-v3 Turbo (~574MB): máxima precisão",
             },
+            WhisperModel::ParakeetV3 => ModelMeta {
+                filename: "",
+                urls: &[],
+                size_mb: 670,
+                display_name: "NVIDIA Parakeet-TDT 0.6B v3 (~670MB): rápido e preciso (CPU)",
+            },
         }
     }
 
@@ -99,10 +105,11 @@ impl WhisperModel {
             WhisperModel::Small => "small",
             WhisperModel::Medium => "medium",
             WhisperModel::LargeTurbo => "large_turbo",
+            WhisperModel::ParakeetV3 => "parakeet_v3",
         }
     }
 
-    /// Lista todos os modelos suportados na ordem de tamanho.
+    /// Lista todos os modelos Whisper (.bin) suportados na ordem de tamanho.
     pub fn all() -> &'static [WhisperModel] {
         &[
             WhisperModel::Tiny,
@@ -115,6 +122,9 @@ impl WhisperModel {
 
     /// Faz parse do slug. Usado pelos comandos Tauri que recebem `name: String`.
     pub fn from_slug(s: &str) -> Option<WhisperModel> {
+        if s == "parakeet_v3" {
+            return Some(WhisperModel::ParakeetV3);
+        }
         Self::all().iter().copied().find(|m| m.slug() == s)
     }
 }
@@ -133,6 +143,9 @@ pub fn models_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf> {
 
 /// Retorna o path onde o arquivo do modelo `m` fica salvo.
 pub fn file_path<R: Runtime>(app: &AppHandle<R>, m: WhisperModel) -> Result<PathBuf> {
+    if m == WhisperModel::ParakeetV3 {
+        return Err(anyhow!("Parakeet-TDT v3 não utiliza arquivo .bin único"));
+    }
     let dir = models_dir(app)?;
     Ok(dir.join(m.meta().filename))
 }
@@ -190,6 +203,17 @@ pub fn list_status<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<ModelStatus>> {
             bytes_on_disk,
         });
     }
+
+    let pk = crate::parakeet::get_status(app);
+    let pk_meta = WhisperModel::ParakeetV3.meta();
+    out.push(ModelStatus {
+        slug: WhisperModel::ParakeetV3.slug().to_string(),
+        display_name: pk_meta.display_name.to_string(),
+        size_mb: pk_meta.size_mb,
+        downloaded: pk.installed,
+        bytes_on_disk: pk.size_mb * 1024 * 1024,
+    });
+
     Ok(out)
 }
 

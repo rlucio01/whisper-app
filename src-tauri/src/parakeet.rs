@@ -148,6 +148,56 @@ pub fn get_sherpa_cli_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     None
 }
 
+/// Localiza a biblioteca compartilhada `sherpa-onnx-c-api.dll` no Windows para inferência residente.
+#[cfg(target_os = "windows")]
+pub fn get_sherpa_c_api_dll_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    let Ok(dir) = runtime_dir(app) else {
+        return None;
+    };
+    let dll_name = "sherpa-onnx-c-api.dll";
+    for candidate in [dir.join(dll_name), dir.join("lib").join(dll_name), dir.join("bin").join(dll_name)] {
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                for candidate in [path.join(dll_name), path.join("lib").join(dll_name), path.join("bin").join(dll_name)] {
+                    if candidate.exists() {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Carrega o motor residente do Parakeet-TDT em memória via FFI (Windows).
+#[cfg(target_os = "windows")]
+pub fn load_resident_engine<R: Runtime>(app: &AppHandle<R>) -> Result<crate::parakeet_ffi::ParakeetEngine> {
+    if !is_runtime_installed(app) || !is_model_installed(app) {
+        return Err(anyhow!(
+            "O modelo NVIDIA Parakeet-TDT v3 ainda não está instalado. Acesse Configurações > Transcrição para fazer o download."
+        ));
+    }
+    let dll_path = get_sherpa_c_api_dll_path(app)
+        .ok_or_else(|| anyhow!("sherpa-onnx-c-api.dll não encontrada no runtime"))?;
+    let m_dir = model_dir(app)?;
+    let available_threads = std::thread::available_parallelism()
+        .map(|n| n.get() as i32)
+        .unwrap_or(4);
+    let num_threads = available_threads.clamp(2, 8);
+    crate::parakeet_ffi::ParakeetEngine::load(&dll_path, &m_dir, num_threads)
+}
+
+/// Limpa tokens especiais para texto contínuo de ditado (sem marcadores de orador).
+pub fn clean_dictation_text(s: &str) -> String {
+    clean_special_tokens_with_mode(s, false)
+}
+
 /// Verifica se o runtime sherpa-onnx está instalado.
 pub fn is_runtime_installed<R: Runtime>(app: &AppHandle<R>) -> bool {
     let Some(cli) = get_sherpa_cli_path(app) else {
@@ -508,10 +558,26 @@ struct SherpaJsonOutput {
     pub timestamps: Vec<f32>,
 }
 
-/// Executa a transcrição local com o NVIDIA Parakeet-TDT 0.6B v3.
+/// Executa a transcrição local com o NVIDIA Parakeet-TDT 0.6B v3 (com diarização para reuniões/arquivos).
 pub fn transcribe_parakeet<R: Runtime>(
     app: &AppHandle<R>,
     audio_path: &Path,
+) -> Result<TranscriptionFileResult> {
+    run_parakeet_inference(app, audio_path, true)
+}
+
+/// Executa a transcrição local para ditado com o NVIDIA Parakeet-TDT 0.6B v3 (texto contínuo, sem marcadores de orador).
+pub fn transcribe_parakeet_dictation<R: Runtime>(
+    app: &AppHandle<R>,
+    audio_path: &Path,
+) -> Result<String> {
+    run_parakeet_inference(app, audio_path, false).map(|r| r.text)
+}
+
+fn run_parakeet_inference<R: Runtime>(
+    app: &AppHandle<R>,
+    audio_path: &Path,
+    diarize: bool,
 ) -> Result<TranscriptionFileResult> {
     if !is_runtime_installed(app) || !is_model_installed(app) {
         return Err(anyhow!(
@@ -609,27 +675,41 @@ pub fn transcribe_parakeet<R: Runtime>(
         .with_context(|| format!("falha ao interpretar JSON de resposta do Parakeet: {}", clean))?;
 
     // 4. Monta os segmentos e detecta separação de oradores via <|spkchange|> e pontuação
-    let segments = build_segments_from_tokens(&parsed.tokens, &parsed.timestamps, decoded.duration_sec);
+    let segments = if diarize {
+        build_segments_from_tokens(&parsed.tokens, &parsed.timestamps, decoded.duration_sec)
+    } else {
+        Vec::new()
+    };
 
     let full_text = if !parsed.text.is_empty() {
         parsed.text
-    } else {
+    } else if !segments.is_empty() {
         segments
             .iter()
             .map(|s| s.text.as_str())
             .collect::<Vec<_>>()
             .join(" ")
+    } else {
+        build_segments_from_tokens(&parsed.tokens, &parsed.timestamps, decoded.duration_sec)
+            .into_iter()
+            .map(|s| s.text)
+            .collect::<Vec<_>>()
+            .join(" ")
     };
 
     Ok(TranscriptionFileResult {
-        text: clean_special_tokens(&full_text),
+        text: clean_special_tokens_with_mode(&full_text, diarize),
         duration_sec: decoded.duration_sec,
         segments,
     })
 }
 
-/// Limpa tokens especiais da transcrição final.
+/// Limpa tokens especiais da transcrição final (mantendo marcadores de orador para reuniões).
 fn clean_special_tokens(s: &str) -> String {
+    clean_special_tokens_with_mode(s, true)
+}
+
+fn clean_special_tokens_with_mode(s: &str, diarize: bool) -> String {
     let mut out = s.to_string();
     for token in &[
         "<|startoftranscript|>",
@@ -653,9 +733,14 @@ fn clean_special_tokens(s: &str) -> String {
     ] {
         out = out.replace(token, "");
     }
-    // Troca marcador de orador por quebra limpa
-    out = out.replace("<|spkchange|>", "\n[Novo Orador]: ");
-    out.trim().to_string()
+    if diarize {
+        // Troca marcador de orador por quebra limpa
+        out = out.replace("<|spkchange|>", "\n[Novo Orador]: ");
+        out.trim().to_string()
+    } else {
+        out = out.replace("<|spkchange|>", " ");
+        out.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
 }
 
 /// Reconstrói segmentos cronológicos respeitando trocas de orador (<|spkchange|>), pausas e perguntas.

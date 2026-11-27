@@ -24,7 +24,7 @@ type Provider =
 type VisualIndicator = "none" | "floating" | "tray" | "both";
 type OverlayPosition = "top" | "bottom";
 type TranscriptionProvider = "local" | "openai_cloud" | "groq_cloud";
-type WhisperModelSlug = "tiny" | "base" | "small" | "medium" | "large_turbo";
+type WhisperModelSlug = "tiny" | "base" | "small" | "medium" | "large_turbo" | "parakeet_v3";
 type InferenceDevice = "auto" | "gpu" | "cpu";
 export type ModelDownloadSource =
   | "auto"
@@ -317,7 +317,7 @@ interface SettingsProps {
   initialTab?: SettingsTab;
 }
 
-export default function Settings({ onBack, updater, initialTab = "audio" }: SettingsProps) {
+export default function Settings({ onBack: _onBack, updater, initialTab = "audio" }: SettingsProps) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [autostart, setAutostartState] = useState<boolean | null>(null);
   // Controla se o campo de texto "modelo personalizado" aparece. Não dá pra
@@ -707,12 +707,10 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
 
   return (
     <div className="settings">
-      <header className="settings-header">
-        <div className="settings-header-left">
-          <button className="btn-link" onClick={onBack}>
-            ← Voltar
-          </button>
-          <h2>Configurações</h2>
+      <header className="pane-header">
+        <div>
+          <h1 className="pane-title">Configurações</h1>
+          <p className="pane-subtitle">Preferências de áudio, modelos, atalhos e IA</p>
         </div>
         <div className="settings-header-actions">
           {saveStatus === "saving" && (
@@ -738,7 +736,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
           className={`settings-tab-btn ${activeTab === "audio" ? "active" : ""}`}
           onClick={() => setActiveTab("audio")}
         >
-          Áudio & Sistema
+          Geral
         </button>
         <button
           type="button"
@@ -752,35 +750,35 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
           className={`settings-tab-btn ${activeTab === "transcription" ? "active" : ""}`}
           onClick={() => setActiveTab("transcription")}
         >
-          Transcrição
+          Modelos
         </button>
         <button
           type="button"
           className={`settings-tab-btn ${activeTab === "llm" ? "active" : ""}`}
           onClick={() => setActiveTab("llm")}
         >
-          IA & Tradução
+          IA
         </button>
         <button
           type="button"
           className={`settings-tab-btn ${activeTab === "dictionary" ? "active" : ""}`}
           onClick={() => setActiveTab("dictionary")}
         >
-          Dicionário & Vocabulário
+          Dicionário
         </button>
         <button
           type="button"
           className={`settings-tab-btn ${activeTab === "overlay" ? "active" : ""}`}
           onClick={() => setActiveTab("overlay")}
         >
-          Barra Flutuante
+          Barra
         </button>
         <button
           type="button"
           className={`settings-tab-btn ${activeTab === "usage" ? "active" : ""}`}
           onClick={() => setActiveTab("usage")}
         >
-          Consumo & Limites
+          Consumo
           {usageReport?.is_near_limit && <span className="tab-badge-dot" />}
         </button>
         <button
@@ -1096,6 +1094,8 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                   onDangerAcceptInvalidCertsChange={(accept) =>
                     setConfig({ ...config, danger_accept_invalid_certs: accept })
                   }
+                  parakeetInstalled={parakeetStatus?.installed}
+                  onParakeetChange={refreshParakeetStatus}
                 />
               </div>
             )}
@@ -1207,7 +1207,7 @@ export default function Settings({ onBack, updater, initialTab = "audio" }: Sett
                           color: parakeetStatus?.installed ? "#4ade80" : "#facc15",
                         }}
                       >
-                        {parakeetStatus?.installed ? `Instalado • ${parakeetStatus.size_mb} MB` : "Diarização de Reuniões"}
+                        {parakeetStatus?.installed ? `Instalado • ${parakeetStatus.size_mb} MB` : "Transcrição Local & Reuniões"}
                       </span>
                     </div>
                     <div className="gpu-runtime-actions">
@@ -2467,6 +2467,8 @@ interface ModelPickerProps {
   onHttpProxyChange?: (proxy: string) => void;
   dangerAcceptInvalidCerts?: boolean;
   onDangerAcceptInvalidCertsChange?: (accept: boolean) => void;
+  parakeetInstalled?: boolean;
+  onParakeetChange?: () => void;
 }
 
 /** Payload dos eventos emitidos pelo Rust em `models.rs::spawn_download`. */
@@ -2496,6 +2498,8 @@ function ModelPicker({
   onHttpProxyChange,
   dangerAcceptInvalidCerts = false,
   onDangerAcceptInvalidCertsChange,
+  parakeetInstalled,
+  onParakeetChange,
 }: ModelPickerProps) {
   const [models, setModels] = useState<ModelStatus[]>([]);
   const [progress, setProgress] = useState<Record<string, DownloadProgress>>(
@@ -2542,9 +2546,47 @@ function ModelPicker({
         setErrors((er) => ({ ...er, [e.payload.name]: e.payload.error }));
       }),
     );
+    track(
+      listen<ParakeetProgress>("parakeet-download-progress", (e) => {
+        setProgress((p) => ({
+          ...p,
+          parakeet_v3: {
+            name: "parakeet_v3",
+            downloaded: e.payload.downloaded,
+            total: e.payload.total,
+          },
+        }));
+      }),
+    );
+    track(
+      listen<void>("parakeet-download-complete", () => {
+        setProgress((p) => {
+          const { parakeet_v3: _drop, ...rest } = p;
+          return rest;
+        });
+        setErrors((er) => {
+          const { parakeet_v3: _drop, ...rest } = er;
+          return rest;
+        });
+        refresh();
+      }),
+    );
+    track(
+      listen<{ error: string }>("parakeet-download-error", (e) => {
+        setProgress((p) => {
+          const { parakeet_v3: _drop, ...rest } = p;
+          return rest;
+        });
+        setErrors((er) => ({ ...er, parakeet_v3: e.payload.error }));
+      }),
+    );
 
     return () => unlistens.forEach((fn) => fn());
   }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [parakeetInstalled]);
 
   const startDownload = (slug: WhisperModelSlug) => {
     setErrors((er) => {
@@ -2571,6 +2613,9 @@ function ModelPicker({
     try {
       await invoke("delete_whisper_model", { name: slug });
       refresh();
+      if (slug === "parakeet_v3") {
+        onParakeetChange?.();
+      }
     } catch (e) {
       alert(`Falha ao apagar: ${e}`);
     }
@@ -2631,110 +2676,96 @@ function ModelPicker({
           </div>
         </div>
 
-        <div className="model-source-select-group">
-          <label className="field-label" style={{ fontSize: "0.82rem", marginBottom: "0.2rem" }}>
-            Fonte de download preferencial:
-          </label>
-          <select
-            className="text-input model-source-select"
-            value={downloadSource}
-            onChange={(e) =>
-              onDownloadSourceChange(e.target.value as ModelDownloadSource)
-            }
-          >
-            <option value="auto">
-              Automático (Resiliente: tenta GitHub → Hugging Face → Espelho)
-            </option>
-            <option value="github">
-              GitHub Releases (Recomendado para firewalls corporativos)
-            </option>
-            <option value="huggingface">
-              Hugging Face Oficial (huggingface.co)
-            </option>
-            <option value="hf_mirror">
-              Espelho Hugging Face (hf-mirror.com)
-            </option>
-            <option value="custom">
-              Personalizado (URL Própria / Intranet Corporativa / Bucket S3)
-            </option>
-          </select>
-        </div>
+        <details className="advanced-disclosure" style={{ marginTop: "0.5rem" }}>
+          <summary>Opções avançadas de download, espelho e proxy corporativo</summary>
+          <div className="advanced-disclosure-body">
+            <div className="model-source-select-group">
+              <label className="field-label" style={{ fontSize: "0.82rem", marginBottom: "0.2rem" }}>
+                Fonte de download preferencial:
+              </label>
+              <select
+                className="text-input model-source-select"
+                value={downloadSource}
+                onChange={(e) =>
+                  onDownloadSourceChange(e.target.value as ModelDownloadSource)
+                }
+              >
+                <option value="auto">
+                  Automático (Resiliente: tenta GitHub → Hugging Face → Espelho)
+                </option>
+                <option value="github">
+                  GitHub Releases (Recomendado para firewalls corporativos)
+                </option>
+                <option value="huggingface">
+                  Hugging Face Oficial (huggingface.co)
+                </option>
+                <option value="hf_mirror">
+                  Espelho Hugging Face (hf-mirror.com)
+                </option>
+                <option value="custom">
+                  Personalizado (URL Própria / Intranet Corporativa / Bucket S3)
+                </option>
+              </select>
+            </div>
 
-        {downloadSource === "custom" && (
-          <div className="model-custom-url-group">
-            <label className="field-label" style={{ fontSize: "0.82rem", marginBottom: "0.2rem" }}>
-              URL Base Personalizada:
+            {downloadSource === "custom" && (
+              <div className="model-custom-url-group">
+                <label className="field-label" style={{ fontSize: "0.82rem", marginBottom: "0.2rem" }}>
+                  URL Base Personalizada:
+                </label>
+                <input
+                  type="text"
+                  className="text-input"
+                  placeholder="Ex: https://meu-servidor.empresa.com/modelos ou https://github.com/usuario/repo/releases/download/v1.0"
+                  value={customModelUrl}
+                  onChange={(e) => onCustomModelUrlChange(e.target.value)}
+                />
+                <span className="field-hint" style={{ fontSize: "0.74rem", margin: 0 }}>
+                  O app baixará <code>&#123;url&#125;/ggml-&#123;modelo&#125;.bin</code>. Se passar uma URL direta terminando em <code>.bin</code>, ela será usada diretamente.
+                </span>
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label className="field-label" style={{ fontSize: "0.78rem", marginBottom: "0.1rem" }}>
+                Proxy HTTP/HTTPS Manual (Opcional):
+              </label>
+              <input
+                type="text"
+                className="text-input"
+                style={{ fontSize: "0.8rem", padding: "0.35rem 0.5rem" }}
+                placeholder="Ex: http://proxy.empresa.com:8080 (vazio = detecção automática)"
+                value={httpProxy}
+                onChange={(e) => onHttpProxyChange?.(e.target.value)}
+              />
+            </div>
+
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                cursor: "pointer",
+                fontSize: "0.78rem",
+                color: "var(--text-primary)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={dangerAcceptInvalidCerts}
+                onChange={(e) => onDangerAcceptInvalidCertsChange?.(e.target.checked)}
+              />
+              <span>Ignorar erros de SSL / Aceitar certificados de inspeção corporativa (MITM)</span>
             </label>
-            <input
-              type="text"
-              className="text-input"
-              placeholder="Ex: https://meu-servidor.empresa.com/modelos ou https://github.com/usuario/repo/releases/download/v1.0"
-              value={customModelUrl}
-              onChange={(e) => onCustomModelUrlChange(e.target.value)}
-            />
-            <span className="field-hint" style={{ fontSize: "0.74rem", margin: 0 }}>
-              O app baixará <code>&#123;url&#125;/ggml-&#123;modelo&#125;.bin</code>. Se passar uma URL direta terminando em <code>.bin</code>, ela será usada diretamente.
-            </span>
+
+            <div className="model-corporate-tip">
+              <span style={{ fontSize: "1rem", flexShrink: 0 }}>💡</span>
+              <div>
+                <strong>Computadores Corporativos:</strong> Caso a rede possua bloqueios rígidos, baixe pelo navegador em <strong>GitHub Releases</strong> e clique em <strong>"Abrir pasta de modelos"</strong> para colar o arquivo <code>.bin</code> diretamente lá dentro.
+              </div>
+            </div>
           </div>
-        )}
-
-        <div
-          style={{
-            marginTop: "0.85rem",
-            paddingTop: "0.85rem",
-            borderTop: "1px solid rgba(255, 255, 255, 0.08)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.6rem",
-          }}
-        >
-          <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-muted, #9ca3af)" }}>
-            🌐 Conexão de Rede & Proxy Corporativo
-          </span>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-            <label className="field-label" style={{ fontSize: "0.78rem", marginBottom: "0.1rem" }}>
-              Proxy HTTP/HTTPS Manual (Opcional):
-            </label>
-            <input
-              type="text"
-              className="text-input"
-              style={{ fontSize: "0.8rem", padding: "0.35rem 0.5rem" }}
-              placeholder="Ex: http://proxy.empresa.com:8080 (deixe vazio para usar detecção automática do Windows)"
-              value={httpProxy}
-              onChange={(e) => onHttpProxyChange?.(e.target.value)}
-            />
-            <span className="field-hint" style={{ fontSize: "0.72rem", margin: 0 }}>
-              Por padrão, o app utiliza o proxy e certificados do Windows. Preencha apenas se sua empresa exigir um endereço específico de proxy.
-            </span>
-          </div>
-
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              cursor: "pointer",
-              fontSize: "0.78rem",
-              color: "var(--text-main, #e5e7eb)",
-              marginTop: "0.2rem",
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={dangerAcceptInvalidCerts}
-              onChange={(e) => onDangerAcceptInvalidCertsChange?.(e.target.checked)}
-            />
-            <span>Ignorar erros de SSL / Aceitar certificados de inspeção corporativa (MITM)</span>
-          </label>
-        </div>
-
-        <div className="model-corporate-tip" style={{ marginTop: "0.85rem" }}>
-          <span style={{ fontSize: "1rem", flexShrink: 0 }}>💡</span>
-          <div>
-            <strong>Computadores Corporativos:</strong> O app agora usa o repositório de certificados e proxies do Windows (Schannel). Caso a rede da empresa possua bloqueios rígidos de download de binários, você pode baixar pelo navegador em <strong>GitHub Releases</strong> e clicar em <strong>"Abrir pasta de modelos"</strong> no topo para simplesmente colar o arquivo <code>.bin</code> lá dentro!
-          </div>
-        </div>
+        </details>
       </div>
 
       {models.map((m) => {
@@ -2794,14 +2825,16 @@ function ModelPicker({
                   >
                     Baixar
                   </button>
-                  <button
-                    type="button"
-                    className="model-row-btn model-row-btn-secondary"
-                    onClick={() => importModel(m.slug)}
-                    title="Importar um arquivo .bin existente no computador"
-                  >
-                    Importar .bin
-                  </button>
+                  {m.slug !== "parakeet_v3" && (
+                    <button
+                      type="button"
+                      className="model-row-btn model-row-btn-secondary"
+                      onClick={() => importModel(m.slug)}
+                      title="Importar um arquivo .bin existente no computador"
+                    >
+                      Importar .bin
+                    </button>
+                  )}
                 </div>
               )}
             </div>

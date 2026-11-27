@@ -293,29 +293,23 @@ function App() {
     }
   }
 
-  if (view === "settings") {
-    return (
-      <main className="container">
+  const renderContent = () => {
+    if (view === "settings") {
+      return (
         <Settings
           onBack={() => setView("main")}
           updater={updater}
           initialTab={settingsTab}
         />
-      </main>
-    );
-  }
+      );
+    }
 
-  if (view === "history") {
-    return (
-      <main className="container">
-        <History onBack={() => setView("main")} />
-      </main>
-    );
-  }
+    if (view === "history") {
+      return <History onBack={() => setView("main")} />;
+    }
 
-  if (view === "file_transcribe") {
-    return (
-      <main className="container">
+    if (view === "file_transcribe") {
+      return (
         <AudioFileTranscribe
           onBack={() => setView("main")}
           onSendToMeeting={(path) => {
@@ -323,13 +317,11 @@ function App() {
             setView("meetings");
           }}
         />
-      </main>
-    );
-  }
+      );
+    }
 
-  if (view === "meetings") {
-    return (
-      <main className="container">
+    if (view === "meetings") {
+      return (
         <MeetingsView
           onBack={() => {
             setMeetingInitialAudio(null);
@@ -337,314 +329,373 @@ function App() {
           }}
           initialAudioPath={meetingInitialAudio}
         />
-      </main>
+      );
+    }
+
+    return (
+      <>
+        <header className="pane-header">
+          <div>
+            <h1 className="pane-title">Ditado por Voz</h1>
+            <p className="pane-subtitle">
+              Transcrição local e formatação automática no cursor
+            </p>
+          </div>
+          <div className="app-header-actions">
+            <button
+              className={`header-pill-btn ${translateEnabled ? "active" : ""}`}
+              onClick={() => invoke("toggle_translation").catch(console.error)}
+              title={`Alternar tradução para inglês (${displayHotkey(translateToggleHotkey || "F10")})`}
+            >
+              <span className="pill-dot" />
+              <span className="pill-label">Tradução: {translateEnabled ? "EN" : "Off"}</span>
+              <kbd className="pill-kbd">{translateToggleHotkey || "F10"}</kbd>
+            </button>
+          </div>
+        </header>
+
+        {(updater.info.status === "available" ||
+          updater.info.status === "downloading" ||
+          updater.info.status === "installing") && (
+          <section className="update-banner">
+            {updater.info.status === "available" && (
+              <>
+                <span className="update-banner-text">
+                  Nova versão disponível: v{updater.info.version}
+                </span>
+                <button
+                  className="btn-primary btn-small"
+                  onClick={updater.installNow}
+                >
+                  Atualizar
+                </button>
+              </>
+            )}
+            {updater.info.status === "downloading" && (
+              <>
+                <span className="update-banner-text">
+                  Baixando atualização
+                  {updater.info.total
+                    ? ` (${Math.round(
+                        (updater.info.downloaded / updater.info.total) * 100,
+                      )}%)`
+                    : "…"}
+                </span>
+                <div className="model-progress-bar update-banner-progress">
+                  <div
+                    className="model-progress-fill"
+                    style={{
+                      width: updater.info.total
+                        ? `${Math.min(100, (updater.info.downloaded / updater.info.total) * 100)}%`
+                        : "8%",
+                    }}
+                  />
+                </div>
+              </>
+            )}
+            {updater.info.status === "installing" && (
+              <span className="update-banner-text">
+                Instalando e reiniciando…
+              </span>
+            )}
+          </section>
+        )}
+
+        <section className={`status status-${status}`}>
+          <div className="status-dot" />
+          <span>{statusLabel[status]}</span>
+        </section>
+
+        {hasNoAiKey && !dismissedPromo && !showOnboarding && (
+          <section className="onboarding-promo-banner" style={{ margin: "0.25rem 0" }}>
+            <div className="promo-banner-text">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <path d="M12 2a10 10 0 1 0 10 10H12V2Z" />
+                <path d="M12 12L2.05 12" />
+              </svg>
+              <span>
+                <strong>Dica:</strong> Ative a pontuação automática com IA usando o plano <strong>100% gratuito do Groq</strong>.
+              </span>
+            </div>
+            <div className="promo-banner-actions">
+              <button
+                type="button"
+                className="btn-primary btn-small"
+                onClick={() => setShowOnboarding(true)}
+              >
+                Configurar em 1 minuto
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setDismissedPromo(true)}
+                title="Dispensar aviso"
+                aria-label="Dispensar"
+                style={{ padding: "0.25rem" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          </section>
+        )}
+
+        {formattedText && (
+          <section className="transcript">
+            <div className="transcript-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <p className="label">Resultado:</p>
+                {copyMsg && <span className="copy-badge">{copyMsg}</span>}
+              </div>
+              <button
+                className="icon-btn"
+                onClick={copyResult}
+                title="Copiar texto"
+                aria-label="Copiar texto"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              </button>
+            </div>
+            <p className="transcript-text">{formattedText}</p>
+          </section>
+        )}
+
+        {showRawSeparately && (
+          <section className="transcript transcript-raw">
+            <p className="label">Transcrição bruta:</p>
+            <p className="transcript-text">{rawTranscript}</p>
+          </section>
+        )}
+
+        {errorMsg && (
+          <section className="error-box">
+            <p className="label">Erro:</p>
+            <pre>{errorMsg}</pre>
+          </section>
+        )}
+
+        <section className="test-scratchpad-card">
+          <div className="test-scratchpad-header">
+            <div className="test-scratchpad-title-group">
+              <span className="test-scratchpad-title">Área de Teste de Digitação</span>
+              {testCopyMsg && <span className="copy-badge">{testCopyMsg}</span>}
+            </div>
+            <div className="test-scratchpad-actions">
+              <button
+                type="button"
+                className={`btn-small ${status === "recording" ? "btn-danger" : "btn-secondary"}`}
+                onClick={() => {
+                  textareaRef.current?.focus();
+                  if (status === "recording") {
+                    invoke("stop_recording").catch(console.error);
+                  } else {
+                    invoke("start_recording").catch(console.error);
+                  }
+                }}
+                title={status === "recording" ? "Parar gravação" : "Gravar voz para testar"}
+              >
+                {status === "recording" ? (
+                  <>
+                    <span className="rec-dot-pulsing" /> Parar
+                  </>
+                ) : (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "-2px", marginRight: "5px" }}>
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="22" />
+                    </svg>
+                    Gravar voz
+                  </>
+                )}
+              </button>
+              {testText && (
+                <button
+                  type="button"
+                  className="btn-link btn-xs"
+                  onClick={() => setTestText("")}
+                >
+                  Limpar
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn-secondary btn-xs"
+                onClick={copyTestText}
+                disabled={!testText}
+              >
+                Copiar
+              </button>
+            </div>
+          </div>
+          <textarea
+            ref={textareaRef}
+            className="test-scratchpad-textarea"
+            rows={4}
+            value={testText}
+            onChange={(e) => setTestText(e.target.value)}
+            placeholder="Clique aqui e use seu atalho de voz para ditar ou digite livremente para testar..."
+          />
+          <div className="test-scratchpad-footer">
+            <span>
+              {(() => {
+                const trimmed = testText.trim();
+                if (!trimmed) {
+                  return "Clique e fale usando seu atalho para ditar neste campo";
+                }
+                const words = trimmed.split(/\s+/).filter(Boolean).length;
+                const chars = testText.length;
+                const tokens = Math.max(words, Math.ceil(chars / 3.8));
+                return `${words} ${words === 1 ? "palavra" : "palavras"} • ${chars} ${chars === 1 ? "caractere" : "caracteres"} • ~${tokens} tokens`;
+              })()}
+            </span>
+          </div>
+        </section>
+
+        <section className="hint">
+          <p>
+            Segure <kbd>{displayHotkey(hotkey)}</kbd>
+            {secondaryHotkey ? (
+              <> ou <kbd>{displayHotkey(secondaryHotkey)}</kbd></>
+            ) : null}
+            , fale, e solte para transcrever.
+          </p>
+          <p className="hint-secondary">
+            Pressione <kbd>{displayHotkey(translateToggleHotkey || "F10")}</kbd> para ligar/desligar a tradução para inglês. Fechar esta janela minimiza o app para a bandeja do sistema.
+          </p>
+        </section>
+      </>
     );
-  }
+  };
 
   return (
-    <main className="container">
-      <header className="app-header">
-        <div>
-          <h1>
-            Whisper App
-            {appVersion && <span className="app-version">v{appVersion}</span>}
-          </h1>
-          <p className="tagline">Ditado por voz com IA</p>
+    <div className="app-shell">
+      <aside className="app-sidebar">
+        <div className="sidebar-brand">
+          <div className="sidebar-brand-title">
+            <span className="sidebar-brand-mark">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              </svg>
+            </span>
+            <span>Whisper App</span>
+          </div>
+          <span className={`status-${status}`} title={statusLabel[status]}>
+            <span className="status-dot" style={{ width: 8, height: 8 }} />
+          </span>
         </div>
-        <div className="app-header-actions">
+
+        <nav className="sidebar-nav" aria-label="Navegação principal">
           <button
-            className={`header-pill-btn ${translateEnabled ? "active" : ""}`}
-            onClick={() => invoke("toggle_translation").catch(console.error)}
-            title={`Alternar tradução para inglês (${displayHotkey(translateToggleHotkey || "F10")})`}
+            type="button"
+            className={`sidebar-item ${view === "main" ? "active" : ""}`}
+            onClick={() => setView("main")}
           >
-            <span className="pill-dot" />
-            <span className="pill-label">Tradução: {translateEnabled ? "EN" : "Off"}</span>
-            <kbd className="pill-kbd">{translateToggleHotkey || "F10"}</kbd>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="22" />
+            </svg>
+            <span>Ditado</span>
           </button>
 
           <button
-            className="icon-btn"
+            type="button"
+            className={`sidebar-item ${view === "file_transcribe" ? "active" : ""}`}
             onClick={() => setView("file_transcribe")}
-            title="Transcrever Áudio ou Vídeo (MP4, YouTube, MP3...)"
-            aria-label="Transcrever Áudio ou Vídeo"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
               <path d="M12 18v-6" />
               <path d="M9 15l3-3 3 3" />
             </svg>
+            <span>Áudio &amp; Vídeo</span>
           </button>
 
           <button
-            className="icon-btn"
+            type="button"
+            className={`sidebar-item ${view === "meetings" ? "active" : ""}`}
             onClick={() => setView("meetings")}
-            title="Reuniões e Atas com Diarização por Orador"
-            aria-label="Reuniões"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
               <circle cx="9" cy="7" r="4" />
               <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
+            <span>Reuniões</span>
           </button>
 
           <button
-            className="icon-btn"
+            type="button"
+            className={`sidebar-item ${view === "history" ? "active" : ""}`}
             onClick={() => setView("history")}
-            title="Histórico"
-            aria-label="Histórico"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" />
               <polyline points="12 6 12 12 16 14" />
             </svg>
+            <span>Histórico</span>
           </button>
+
           <button
-            className="icon-btn"
-            onClick={() => setShowOnboarding(true)}
-            title="Primeiros Passos / Tutorial de Configuração"
-            aria-label="Primeiros Passos"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-          </button>
-          <button
-            className="icon-btn"
+            type="button"
+            className={`sidebar-item ${view === "settings" ? "active" : ""}`}
             onClick={() => {
               setSettingsTab("audio");
               setView("settings");
             }}
-            title="Configurações"
-            aria-label="Configurações"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
               <circle cx="12" cy="12" r="3" />
             </svg>
+            <span>Configurações</span>
           </button>
-        </div>
-      </header>
+        </nav>
 
-      {(updater.info.status === "available" ||
-        updater.info.status === "downloading" ||
-        updater.info.status === "installing") && (
-        <section className="update-banner">
+        <div className="sidebar-footer">
           {updater.info.status === "available" && (
-            <>
-              <span className="update-banner-text">
-                Nova versão disponível: v{updater.info.version}
-              </span>
-              <button
-                className="btn-primary btn-small"
-                onClick={updater.installNow}
-              >
-                Atualizar
-              </button>
-            </>
+            <button
+              type="button"
+              className="sidebar-update-btn"
+              onClick={updater.installNow}
+            >
+              <span>Atualizar v{updater.info.version}</span>
+              <span>↗</span>
+            </button>
           )}
-          {updater.info.status === "downloading" && (
-            <>
-              <span className="update-banner-text">
-                Baixando atualização
-                {updater.info.total
-                  ? ` (${Math.round(
-                      (updater.info.downloaded / updater.info.total) * 100,
-                    )}%)`
-                  : "…"}
-              </span>
-              <div className="model-progress-bar update-banner-progress">
-                <div
-                  className="model-progress-fill"
-                  style={{
-                    width: updater.info.total
-                      ? `${Math.min(100, (updater.info.downloaded / updater.info.total) * 100)}%`
-                      : "8%",
-                  }}
-                />
-              </div>
-            </>
-          )}
-          {updater.info.status === "installing" && (
-            <span className="update-banner-text">
-              Instalando e reiniciando…
-            </span>
-          )}
-        </section>
-      )}
 
-      <section className={`status status-${status}`}>
-        <div className="status-dot" />
-        <span>{statusLabel[status]}</span>
-      </section>
-
-      {hasNoAiKey && !dismissedPromo && !showOnboarding && (
-        <section className="onboarding-promo-banner" style={{ margin: "0.5rem 0" }}>
-          <div className="promo-banner-text">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <path d="M12 2a10 10 0 1 0 10 10H12V2Z" />
-              <path d="M12 12L2.05 12" />
+          <button
+            type="button"
+            className="sidebar-item"
+            onClick={() => setShowOnboarding(true)}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-            <span>
-              <strong>Dica:</strong> Ative a pontuação automática com IA usando o plano <strong>100% gratuito do Groq</strong>.
-            </span>
-          </div>
-          <div className="promo-banner-actions">
-            <button
-              type="button"
-              className="btn-primary btn-small"
-              onClick={() => setShowOnboarding(true)}
-            >
-              Configurar em 1 minuto
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={() => setDismissedPromo(true)}
-              title="Dispensar aviso"
-              aria-label="Dispensar"
-              style={{ padding: "0.25rem" }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-        </section>
-      )}
+            <span>Primeiros Passos</span>
+          </button>
 
-      {formattedText && (
-        <section className="transcript">
-          <div className="transcript-header">
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <p className="label">Resultado:</p>
-              {copyMsg && <span className="copy-badge">{copyMsg}</span>}
-            </div>
-            <button
-              className="icon-btn"
-              onClick={copyResult}
-              title="Copiar texto"
-              aria-label="Copiar texto"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-            </button>
-          </div>
-          <p className="transcript-text">{formattedText}</p>
-        </section>
-      )}
-
-      {showRawSeparately && (
-        <section className="transcript transcript-raw">
-          <p className="label">Transcrição bruta:</p>
-          <p className="transcript-text">{rawTranscript}</p>
-        </section>
-      )}
-
-      {errorMsg && (
-        <section className="error-box">
-          <p className="label">Erro:</p>
-          <pre>{errorMsg}</pre>
-        </section>
-      )}
-
-      <section className="test-scratchpad-card">
-        <div className="test-scratchpad-header">
-          <div className="test-scratchpad-title-group">
-            <span className="test-scratchpad-title">Área de Teste de Digitação</span>
-            {testCopyMsg && <span className="copy-badge">{testCopyMsg}</span>}
-          </div>
-          <div className="test-scratchpad-actions">
-            <button
-              type="button"
-              className={`btn-small ${status === "recording" ? "btn-danger" : "btn-secondary"}`}
-              onClick={() => {
-                textareaRef.current?.focus();
-                if (status === "recording") {
-                  invoke("stop_recording").catch(console.error);
-                } else {
-                  invoke("start_recording").catch(console.error);
-                }
-              }}
-              title={status === "recording" ? "Parar gravação" : "Gravar voz para testar"}
-            >
-              {status === "recording" ? (
-                <>
-                  <span className="rec-dot-pulsing" /> Parar
-                </>
-              ) : (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "-2px", marginRight: "5px" }}>
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" y1="19" x2="12" y2="22" />
-                  </svg>
-                  Gravar voz
-                </>
-              )}
-            </button>
-            {testText && (
-              <button
-                type="button"
-                className="btn-link btn-xs"
-                onClick={() => setTestText("")}
-              >
-                Limpar
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn-secondary btn-xs"
-              onClick={copyTestText}
-              disabled={!testText}
-            >
-              Copiar
-            </button>
+          <div className="sidebar-meta-row">
+            <span>{appVersion ? `v${appVersion}` : "Whisper App"}</span>
+            <span>{translateEnabled ? "EN" : "Auto"}</span>
           </div>
         </div>
-        <textarea
-          ref={textareaRef}
-          className="test-scratchpad-textarea"
-          rows={4}
-          value={testText}
-          onChange={(e) => setTestText(e.target.value)}
-          placeholder="Clique aqui e use seu atalho de voz para ditar ou digite livremente para testar..."
-        />
-        <div className="test-scratchpad-footer">
-          <span>
-            {(() => {
-              const trimmed = testText.trim();
-              if (!trimmed) {
-                return "Clique e fale usando seu atalho para ditar neste campo";
-              }
-              const words = trimmed.split(/\s+/).filter(Boolean).length;
-              const chars = testText.length;
-              const tokens = Math.max(words, Math.ceil(chars / 3.8));
-              return `${words} ${words === 1 ? "palavra" : "palavras"} • ${chars} ${chars === 1 ? "caractere" : "caracteres"} • ~${tokens} tokens`;
-            })()}
-          </span>
-        </div>
-      </section>
+      </aside>
 
-      <section className="hint">
-        <p>
-          Segure <kbd>{displayHotkey(hotkey)}</kbd>
-          {secondaryHotkey ? (
-            <> ou <kbd>{displayHotkey(secondaryHotkey)}</kbd></>
-          ) : null}
-          , fale, e solte para transcrever.
-        </p>
-        <p className="hint-secondary">
-          Pressione <kbd>{displayHotkey(translateToggleHotkey || "F10")}</kbd> para ligar/desligar a tradução para inglês. Fechar esta janela minimiza o app para a bandeja do sistema.
-        </p>
-      </section>
+      <div className="app-content-panel">
+        <main className="container">{renderContent()}</main>
+      </div>
 
       {showOnboarding && (
         <OnboardingModal
@@ -658,7 +709,7 @@ function App() {
           currentHotkey={hotkey}
         />
       )}
-    </main>
+    </div>
   );
 }
 

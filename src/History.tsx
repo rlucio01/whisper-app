@@ -11,7 +11,7 @@ interface HistoryProps {
   onBack: () => void;
 }
 
-export default function History({ onBack }: HistoryProps) {
+export default function History({ onBack: _onBack }: HistoryProps) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -105,11 +105,11 @@ export default function History({ onBack }: HistoryProps) {
 
   return (
     <div className="settings history">
-      <header className="settings-header">
-        <button className="btn-link" onClick={onBack}>
-          ← Voltar
-        </button>
-        <h2>Histórico</h2>
+      <header className="pane-header">
+        <div>
+          <h1 className="pane-title">Histórico</h1>
+          <p className="pane-subtitle">Transcrições recentes e contagem de palavras</p>
+        </div>
       </header>
 
       <section className="history-stat">

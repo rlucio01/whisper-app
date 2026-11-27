@@ -36,12 +36,12 @@ html[data-overlay-mode] #root {
      `overlay.accent_color` no config, aplicados via inline style no
      elemento raiz por `Overlay.tsx` — os fallbacks abaixo cobrem o instante
      antes do primeiro `get_config` resolver. */
-  background: rgba(20, 20, 20, var(--overlay-opacity, 0.92));
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(17, 17, 20, var(--overlay-opacity, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
   font-size: 0.9rem;
   font-weight: 500;
   height: calc(100% - 16px);

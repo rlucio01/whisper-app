@@ -116,6 +116,9 @@ pub fn list_whisper_models<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ModelSta
 pub fn download_whisper_model<R: Runtime>(app: AppHandle<R>, name: String) -> Result<(), String> {
     let m = WhisperModel::from_slug(&name)
         .ok_or_else(|| format!("modelo desconhecido: {}", name))?;
+    if m == WhisperModel::ParakeetV3 {
+        return crate::parakeet::spawn_download(app).map_err(|e| format!("{:#}", e));
+    }
     models::spawn_download(app, m);
     Ok(())
 }
@@ -125,6 +128,9 @@ pub fn download_whisper_model<R: Runtime>(app: AppHandle<R>, name: String) -> Re
 pub fn delete_whisper_model<R: Runtime>(app: AppHandle<R>, name: String) -> Result<(), String> {
     let m = WhisperModel::from_slug(&name)
         .ok_or_else(|| format!("modelo desconhecido: {}", name))?;
+    if m == WhisperModel::ParakeetV3 {
+        return crate::parakeet::delete_parakeet_model(&app).map_err(|e| format!("{:#}", e));
+    }
     models::delete(&app, m).map_err(|e| format!("{:#}", e))
 }
 
@@ -180,6 +186,9 @@ pub fn import_whisper_model<R: Runtime>(
 ) -> Result<(), String> {
     let m = WhisperModel::from_slug(&name)
         .ok_or_else(|| format!("modelo desconhecido: {}", name))?;
+    if m == WhisperModel::ParakeetV3 {
+        return Err("O modelo Parakeet-TDT v3 é composto por múltiplos arquivos ONNX. Use o botão Baixar para instalá-lo.".to_string());
+    }
     let path = std::path::PathBuf::from(source_path.trim());
     models::import_model(&app, m, &path).map_err(|e| format!("{:#}", e))
 }

@@ -115,6 +115,11 @@ impl TranscriptionService {
     pub fn transcribe(&self, wav_path: PathBuf) {
         let _ = self.cmd_tx.send(Command::Transcribe(wav_path));
     }
+
+    /// Solicita o pré-carregamento (warmup) do modelo local em background.
+    pub fn warmup(&self) {
+        let _ = self.cmd_tx.send(Command::Warmup);
+    }
 }
 
 /// Contexto local carregado + qual modelo e dispositivo ele representa (pra saber se
@@ -125,6 +130,11 @@ struct LoadedModel {
     ctx: WhisperContext,
 }
 
+/// Tempo de inatividade após o qual o motor Parakeet residente é descarregado
+/// da memória para manter o uso de RAM em idle abaixo de ~10 MB.
+#[cfg(target_os = "windows")]
+const PARAKEET_IDLE_TTL: Duration = Duration::from_secs(45);
+
 /// Loop principal da thread de transcrição.
 /// Mantém o modelo local carregado entre chamadas — recarrega se o usuário
 /// mudar o modelo em settings.
@@ -134,8 +144,39 @@ fn transcription_thread_loop<R: Runtime>(
     client: reqwest::blocking::Client,
 ) {
     let mut loaded: Option<LoadedModel> = None;
+    #[cfg(target_os = "windows")]
+    let mut parakeet_engine: Option<crate::parakeet_ffi::ParakeetEngine> = None;
 
-    while let Ok(cmd) = cmd_rx.recv() {
+    loop {
+        let cmd = {
+            #[cfg(target_os = "windows")]
+            {
+                if parakeet_engine.is_some() {
+                    match cmd_rx.recv_timeout(PARAKEET_IDLE_TTL) {
+                        Ok(c) => c,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            // Libera o modelo Parakeet após inatividade para manter idle < 10 MB.
+                            parakeet_engine = None;
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                } else {
+                    match cmd_rx.recv() {
+                        Ok(c) => c,
+                        Err(_) => break,
+                    }
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                match cmd_rx.recv() {
+                    Ok(c) => c,
+                    Err(_) => break,
+                }
+            }
+        };
+
         // Snapshot do config a cada mensagem — a UI pode ter mudado provider
         // ou modelo entre gravações. Também aproveita a chave da OpenAI.
         let cfg_snapshot = match app.state::<SharedConfig>().lock() {
@@ -157,10 +198,16 @@ fn transcription_thread_loop<R: Runtime>(
 
         match cmd {
             Command::Warmup => {
-                // Só faz sentido pré-carregar se o provider for local — cloud
-                // não tem estado local para aquecer.
                 if cfg_snapshot.transcription_provider == TranscriptionProvider::Local {
-                    if let Err(e) = ensure_model_loaded(
+                    if cfg_snapshot.whisper_model == WhisperModel::ParakeetV3 {
+                        #[cfg(target_os = "windows")]
+                        if parakeet_engine.is_none() {
+                            match crate::parakeet::load_resident_engine(&app) {
+                                Ok(eng) => parakeet_engine = Some(eng),
+                                Err(e) => eprintln!("[warmup parakeet] {:#}", e),
+                            }
+                        }
+                    } else if let Err(e) = ensure_model_loaded(
                         &app,
                         cfg_snapshot.whisper_model,
                         use_gpu,
@@ -179,15 +226,29 @@ fn transcription_thread_loop<R: Runtime>(
                 let prompt_ref = whisper_prompt.as_deref();
 
                 let result = match cfg_snapshot.transcription_provider {
-                    TranscriptionProvider::Local => transcribe_local(
-                        &app,
-                        &wav_path,
-                        cfg_snapshot.whisper_model,
-                        use_gpu,
-                        &cfg_snapshot.transcription_language,
-                        prompt_ref,
-                        &mut loaded,
-                    ),
+                    TranscriptionProvider::Local => {
+                        if cfg_snapshot.whisper_model == WhisperModel::ParakeetV3 {
+                            #[cfg(target_os = "windows")]
+                            {
+                                transcribe_parakeet_resident(&app, &wav_path, &mut parakeet_engine)
+                            }
+                            #[cfg(not(target_os = "windows"))]
+                            {
+                                let _ = app.emit("transcription-status", "transcrevendo");
+                                crate::parakeet::transcribe_parakeet_dictation(&app, &wav_path)
+                            }
+                        } else {
+                            transcribe_local(
+                                &app,
+                                &wav_path,
+                                cfg_snapshot.whisper_model,
+                                use_gpu,
+                                &cfg_snapshot.transcription_language,
+                                prompt_ref,
+                                &mut loaded,
+                            )
+                        }
+                    }
                     TranscriptionProvider::OpenaiCloud => {
                         let _ = app.emit("transcription-status", "enviando_para_cloud");
                         transcribe_cloud(
@@ -274,6 +335,31 @@ fn ensure_model_loaded<R: Runtime>(
 
 // ---------- Modo local ----------
 
+#[cfg(target_os = "windows")]
+fn transcribe_parakeet_resident<R: Runtime>(
+    app: &AppHandle<R>,
+    wav_path: &Path,
+    engine: &mut Option<crate::parakeet_ffi::ParakeetEngine>,
+) -> Result<String> {
+    if engine.is_none() {
+        let _ = app.emit("transcription-status", "carregando_modelo");
+        match crate::parakeet::load_resident_engine(app) {
+            Ok(eng) => *engine = Some(eng),
+            Err(e) => {
+                eprintln!("Aviso: falha no engine FFI Parakeet, usando fallback CLI: {:#}", e);
+                let _ = app.emit("transcription-status", "transcrevendo");
+                return crate::parakeet::transcribe_parakeet_dictation(app, wav_path);
+            }
+        }
+    }
+
+    let _ = app.emit("transcription-status", "transcrevendo");
+    let samples = read_and_prepare_wav(wav_path)?;
+    let eng = engine.as_ref().expect("engine carregado acima");
+    let raw = eng.transcribe_samples(WHISPER_SAMPLE_RATE as i32, &samples)?;
+    Ok(crate::parakeet::clean_dictation_text(&raw))
+}
+
 /// Transcreve usando o modelo local, recarregando-o se o usuário mudou de
 /// modelo ou dispositivo desde a última transcrição.
 fn transcribe_local<R: Runtime>(
@@ -285,6 +371,11 @@ fn transcribe_local<R: Runtime>(
     prompt: Option<&str>,
     loaded: &mut Option<LoadedModel>,
 ) -> Result<String> {
+    if wanted == WhisperModel::ParakeetV3 {
+        let _ = app.emit("transcription-status", "transcrevendo");
+        return crate::parakeet::transcribe_parakeet_dictation(app, wav_path);
+    }
+
     // Se o modo GPU estiver ativo e o runtime CUDA estiver instalado no disco,
     // executa diretamente via engine nativa CUDA (whisper-cli com cuBLAS)
     if use_gpu && crate::gpu_runtime::is_cuda_runtime_installed(app) {
@@ -707,6 +798,57 @@ pub fn run_local_benchmark<R: Runtime>(
         _ => cfg.should_use_gpu(),
     };
 
+    if cfg.whisper_model == WhisperModel::ParakeetV3 {
+        if !crate::parakeet::is_runtime_installed(app) || !crate::parakeet::is_model_installed(app) {
+            return Err(anyhow!(
+                "O modelo NVIDIA Parakeet-TDT v3 ainda não está instalado.\n\
+                 Vá em Configurações → Transcrição e clique em Baixar antes de testar."
+            ));
+        }
+
+        let sample_rate = 16_000u32;
+        let temp_wav = std::env::temp_dir().join("parakeet_benchmark.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        {
+            let mut writer = hound::WavWriter::create(&temp_wav, spec)
+                .context("falha ao criar wav temporário de benchmark")?;
+            for i in 0..sample_rate {
+                let t = i as f32 / sample_rate as f32;
+                let s = ((2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.05 * 32767.0) as i16;
+                writer.write_sample(s)?;
+            }
+            writer.finalize()?;
+        }
+
+        let start = std::time::Instant::now();
+        let res = crate::parakeet::transcribe_parakeet_dictation(app, &temp_wav);
+        let _ = std::fs::remove_file(&temp_wav);
+        res?;
+
+        let duration = start.elapsed();
+        let duration_ms = duration.as_millis() as u64;
+        let audio_duration_sec = 1.0f32;
+        let duration_secs = duration.as_secs_f32().max(0.001);
+        let speedup_factor = audio_duration_sec / duration_secs;
+
+        return Ok(BenchmarkResult {
+            duration_ms,
+            audio_duration_sec,
+            speedup_factor,
+            model: cfg.whisper_model.meta().display_name.to_string(),
+            device_used: "CPU (ONNX)".to_string(),
+            message: format!(
+                "Inferência concluída em {}ms ({:.1}x tempo real) via CPU (ONNX).",
+                duration_ms, speedup_factor
+            ),
+        });
+    }
+
     let model_path = models::file_path(app, cfg.whisper_model)?;
     if !model_path.exists() {
         return Err(anyhow!(
@@ -864,53 +1006,59 @@ pub fn transcribe_file_standalone<R: Runtime>(
 
     match cfg_snapshot.transcription_provider {
         TranscriptionProvider::Local => {
-            let use_gpu = cfg_snapshot.should_use_gpu();
-            let ctx = load_local_model(app, cfg_snapshot.whisper_model, use_gpu)?;
-            let mut state = ctx
-                .create_state()
-                .context("falha ao criar estado do whisper local")?;
-
-            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-            params.set_language((!language.is_empty()).then_some(language));
-            if let Some(p) = prompt_ref {
-                let pt = p.trim();
-                if !pt.is_empty() {
-                    params.set_initial_prompt(pt);
-                }
-            }
-            params.set_print_progress(false);
-            params.set_print_special(false);
-            params.set_print_timestamps(true);
-            params.set_suppress_blank(true);
-
-            let available = std::thread::available_parallelism()
-                .map(|n| n.get() as i32)
-                .unwrap_or(4);
-            let n_threads = if available > 8 {
-                (available / 2).clamp(4, 8)
+            if cfg_snapshot.whisper_model == WhisperModel::ParakeetV3 {
+                let pk_res = crate::parakeet::transcribe_parakeet(app, file_path)?;
+                full_text = pk_res.text;
+                segments = pk_res.segments;
             } else {
-                available.clamp(2, 6)
-            };
-            params.set_n_threads(n_threads);
+                let use_gpu = cfg_snapshot.should_use_gpu();
+                let ctx = load_local_model(app, cfg_snapshot.whisper_model, use_gpu)?;
+                let mut state = ctx
+                    .create_state()
+                    .context("falha ao criar estado do whisper local")?;
 
-            state
-                .full(params, &decoded.samples)
-                .context("falha durante transcrição do arquivo")?;
+                let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+                params.set_language((!language.is_empty()).then_some(language));
+                if let Some(p) = prompt_ref {
+                    let pt = p.trim();
+                    if !pt.is_empty() {
+                        params.set_initial_prompt(pt);
+                    }
+                }
+                params.set_print_progress(false);
+                params.set_print_special(false);
+                params.set_print_timestamps(true);
+                params.set_suppress_blank(true);
 
-            let n_segments = state.full_n_segments();
-            for i in 0..n_segments {
-                if let Some(seg) = state.get_segment(i) {
-                    let text = seg.to_str().unwrap_or_default().trim().to_string();
-                    let t0 = seg.start_timestamp() as f32 * 0.01;
-                    let t1 = seg.end_timestamp() as f32 * 0.01;
-                    if !text.is_empty() {
-                        full_text.push_str(&text);
-                        full_text.push(' ');
-                        segments.push(TranscriptSegment {
-                            start_sec: t0,
-                            end_sec: t1,
-                            text,
-                        });
+                let available = std::thread::available_parallelism()
+                    .map(|n| n.get() as i32)
+                    .unwrap_or(4);
+                let n_threads = if available > 8 {
+                    (available / 2).clamp(4, 8)
+                } else {
+                    available.clamp(2, 6)
+                };
+                params.set_n_threads(n_threads);
+
+                state
+                    .full(params, &decoded.samples)
+                    .context("falha durante transcrição do arquivo")?;
+
+                let n_segments = state.full_n_segments();
+                for i in 0..n_segments {
+                    if let Some(seg) = state.get_segment(i) {
+                        let text = seg.to_str().unwrap_or_default().trim().to_string();
+                        let t0 = seg.start_timestamp() as f32 * 0.01;
+                        let t1 = seg.end_timestamp() as f32 * 0.01;
+                        if !text.is_empty() {
+                            full_text.push_str(&text);
+                            full_text.push(' ');
+                            segments.push(TranscriptSegment {
+                                start_sec: t0,
+                                end_sec: t1,
+                                text,
+                            });
+                        }
                     }
                 }
             }
